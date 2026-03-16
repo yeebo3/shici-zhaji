@@ -1,0 +1,32 @@
+{
+  "name": "shici-zhaji",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "generate": "node scripts/generate-data.js",
+    "import": "node scripts/import-poems.js",
+    "fetch": "node scripts/fetch-poetry.js",
+    "fetch:gushiwen": "node scripts/fetch-gushiwen.js",
+    "convert:vmijunv": "node scripts/convert-vmijunv-data.js"
+  },
+  "dependencies": {
+    "lucide-react": "^0.344.0",
+    "next": "14.1.0",
+    "opencc-js": "^1.0.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.33",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.3.3"
+  }
+}

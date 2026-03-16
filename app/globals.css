@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500&display=swap');
+
+@layer base {
+  body {
+    @apply bg-parchment text-ink font-sans antialiased;
+    @apply dark:bg-night dark:text-night-text;
+  }
+}
+
+@layer components {
+  .poem-line {
+    @apply leading-relaxed-poem tracking-wider;
+  }
+
+  .card {
+    @apply bg-cream dark:bg-night-card rounded-lg border border-stone/20 dark:border-stone/10;
+  }
+
+  .btn-primary {
+    @apply px-5 py-2 rounded-md bg-ink text-parchment dark:bg-night-text dark:text-night
+           hover:opacity-80 transition-opacity text-sm font-sans;
+  }
+
+  .btn-ghost {
+    @apply px-4 py-2 rounded-md text-ink/70 dark:text-night-text/70
+           hover:bg-ink/5 dark:hover:bg-white/5 transition-colors text-sm;
+  }
+
+  .tag {
+    @apply inline-block px-2.5 py-0.5 text-xs rounded-full
+           bg-stone/15 text-ink/60 dark:bg-stone/10 dark:text-night-text/60;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.15);
+  border-radius: 2px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+}
+
+/* Selection */
+::selection {
+  background: rgba(160, 147, 125, 0.3);
+}
+.dark ::selection {
+  background: rgba(212, 208, 200, 0.2);
+}
