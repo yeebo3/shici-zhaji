@@ -22,6 +22,7 @@ export type PoemIndex = {
   preview: string  // 前两句预览
   source?: string
   shard: number    // 所在分片编号，用于按需加载
+  hasAnnotation?: boolean
 }
 
 // 分片文件结构（按编号分片，不再按朝代）
@@ -74,10 +75,11 @@ export type PoemSearchHit = PoemIndex & {
 
 export type FullTextSearchResult = {
   items: PoemSearchHit[]
-  total: number
+  total: number | null
   offset: number
   limit: number
   hasMore: boolean
+  nextOffset: number
 }
 
 export type PoemGroup = {

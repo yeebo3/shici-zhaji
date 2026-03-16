@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Navbar from '@/components/Navbar'
 import PoemCard from '@/components/PoemCard'
 import SearchBar from '@/components/SearchBar'
@@ -37,7 +37,7 @@ function toSearchHit(poem: PoemIndex): PoemSearchHit {
 
 export default function CategoryPage() {
   const [poems, setPoems] = useState<PoemSearchHit[]>([])
-  const [total, setTotal] = useState(0)
+  const [total, setTotal] = useState<number | null>(0)
   const [hasMore, setHasMore] = useState(false)
   const [dynasties, setDynasties] = useState<string[]>([])
   const [authors, setAuthors] = useState<string[]>([])
@@ -51,6 +51,7 @@ export default function CategoryPage() {
   const [selected, setSelected] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [showAllFilters, setShowAllFilters] = useState(false)
+  const queryAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     async function init() {
@@ -85,6 +86,12 @@ export default function CategoryPage() {
   useEffect(() => {
     if (initialLoading) return
     let cancelled = false
+    const controller = new AbortController()
+
+    if (queryAbortRef.current) {
+      queryAbortRef.current.abort()
+    }
+    queryAbortRef.current = controller
 
     async function loadFirstPage() {
       setQueryLoading(true)
@@ -97,6 +104,7 @@ export default function CategoryPage() {
             q,
             offset: 0,
             limit: PAGE_SIZE,
+            signal: controller.signal,
           })
           if (cancelled) return
           setPoems(res.items)
@@ -109,22 +117,32 @@ export default function CategoryPage() {
           ...buildQuery(),
           offset: 0,
           limit: PAGE_SIZE,
+          signal: controller.signal,
         })
         if (cancelled) return
         setPoems(res.items.map(toSearchHit))
         setTotal(res.total)
         setHasMore(res.hasMore)
       } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') return
         if (cancelled) return
         const msg = e instanceof Error ? e.message : '数据加载失败'
         setError(msg)
       } finally {
-        if (!cancelled) setQueryLoading(false)
+        if (!cancelled && queryAbortRef.current === controller) {
+          setQueryLoading(false)
+        }
       }
     }
 
     loadFirstPage()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      controller.abort()
+      if (queryAbortRef.current === controller) {
+        queryAbortRef.current = null
+      }
+    }
   }, [filterType, selected, searchQuery, initialLoading])
 
   const handleLoadMore = async () => {
@@ -252,7 +270,9 @@ export default function CategoryPage() {
 
         {searchQuery && (
           <p className="text-xs text-ash mb-4">
-            搜索 &ldquo;{searchQuery}&rdquo; 找到 {total} 首（支持诗句全文）
+            搜索 &ldquo;{searchQuery}&rdquo;
+            {total === null ? ` 已加载 ${poems.length} 首（增量检索）` : ` 找到 ${total} 首`}
+            （支持诗句全文）
           </p>
         )}
         {queryLoading && (
@@ -280,7 +300,11 @@ export default function CategoryPage() {
               onClick={handleLoadMore}
               disabled={loadingMore}
             >
-              {loadingMore ? '加载中...' : `加载更多 (${poems.length}/${total})`}
+              {loadingMore
+                ? '加载中...'
+                : total === null
+                ? `加载更多 (${poems.length}${hasMore ? '+' : ''})`
+                : `加载更多 (${poems.length}/${total})`}
             </button>
           </div>
         )}

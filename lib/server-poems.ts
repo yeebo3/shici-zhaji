@@ -16,12 +16,26 @@ const DATA_DIR = path.join(process.cwd(), 'public', 'data')
 const INDEX_PATH = path.join(DATA_DIR, 'index.json')
 const MANIFEST_PATH = path.join(DATA_DIR, 'manifest.json')
 const SHARDS_DIR = path.join(DATA_DIR, 'shards')
+const MAX_CACHED_SHARDS = 64
 
 let indexCache: PoemIndex[] | null = null
 let manifestCache: Manifest | null = null
 let idToIndexCache: Map<string, PoemIndex> | null = null
 const shardCache = new Map<number, Poem[]>()
 let notebookIndexCache: Record<PoemNotebookId, PoemIndex[]> | null = null
+
+function setShardCache(shard: number, poems: Poem[]) {
+  if (shardCache.has(shard)) {
+    shardCache.delete(shard)
+  }
+  shardCache.set(shard, poems)
+
+  if (shardCache.size <= MAX_CACHED_SHARDS) return
+  const oldest = shardCache.keys().next().value as number | undefined
+  if (oldest !== undefined) {
+    shardCache.delete(oldest)
+  }
+}
 
 function normalizeNotebook(notebook?: string | null): PoemNotebookId {
   if (notebook === 'annotated' || notebook === 'plain') return notebook
@@ -59,14 +73,18 @@ async function loadManifest(): Promise<Manifest> {
   return parsed
 }
 
-async function loadShard(shard: number): Promise<Poem[]> {
+async function loadShard(shard: number, opts: { cache?: boolean } = {}): Promise<Poem[]> {
+  const useCache = opts.cache !== false
   const cached = shardCache.get(shard)
-  if (cached) return cached
+  if (cached) {
+    if (useCache) setShardCache(shard, cached)
+    return cached
+  }
 
   const file = path.join(SHARDS_DIR, `s-${shard}.json`)
   const raw = await fs.readFile(file, 'utf-8')
   const parsed: PoemShard = JSON.parse(raw)
-  shardCache.set(shard, parsed.poems)
+  if (useCache) setShardCache(shard, parsed.poems)
   return parsed.poems
 }
 
@@ -74,11 +92,23 @@ async function ensureNotebookIndexCache() {
   if (notebookIndexCache) return
 
   const index = await loadIndex()
+  const hasInlineFlag = index.some(item => typeof item.hasAnnotation === 'boolean')
+
+  if (hasInlineFlag) {
+    notebookIndexCache = {
+      all: index,
+      annotated: index.filter(p => p.hasAnnotation === true),
+      plain: index.filter(p => p.hasAnnotation !== true),
+    }
+    return
+  }
+
+  // 兼容旧数据：若索引中没有 hasAnnotation，则回退到一次性全分片扫描。
   const manifest = await loadManifest()
   const annotatedIdSet = new Set<string>()
 
   for (const shardMeta of manifest.shards) {
-    const poems = await loadShard(shardMeta.index)
+    const poems = await loadShard(shardMeta.index, { cache: false })
     for (const poem of poems) {
       if (hasAnnotation(poem)) annotatedIdSet.add(poem.id)
     }
@@ -179,6 +209,7 @@ function buildSearchHit(poem: Poem, shard: number, qLower: string): PoemSearchHi
     preview: buildPreview(poem.content),
     source: poem.source || '',
     shard,
+    hasAnnotation: hasAnnotation(poem),
     matchedLines,
     matchFields,
   }
@@ -189,42 +220,81 @@ export async function searchPoemsFullText(opts: {
   offset: number
   limit: number
   notebook?: PoemNotebookId
+  withTotal?: boolean
 }): Promise<FullTextSearchResult> {
   const q = opts.q.trim()
   const offset = Math.max(0, opts.offset)
   const limit = Math.max(1, opts.limit)
   const notebook = normalizeNotebook(opts.notebook)
+  const withTotal = opts.withTotal === true
 
   if (!q) {
-    return { items: [], total: 0, offset, limit, hasMore: false }
+    return { items: [], total: withTotal ? 0 : null, offset, limit, hasMore: false, nextOffset: offset }
   }
 
   const qLower = q.toLowerCase()
   const manifest = await loadManifest()
   const items: PoemSearchHit[] = []
-  let total = 0
+  let seenMatches = 0
+  let hasMore = false
 
-  for (const shardMeta of manifest.shards) {
-    const poems = await loadShard(shardMeta.index)
+  if (withTotal) {
+    for (const shardMeta of manifest.shards) {
+      const poems = await loadShard(shardMeta.index, { cache: false })
+
+      for (const poem of poems) {
+        if (!inNotebook(poem, notebook)) continue
+        const hit = buildSearchHit(poem, shardMeta.index, qLower)
+        if (!hit) continue
+
+        if (seenMatches >= offset && items.length < limit) {
+          items.push(hit)
+        }
+        seenMatches++
+      }
+    }
+
+    return {
+      items,
+      total: seenMatches,
+      offset,
+      limit,
+      hasMore: offset + items.length < seenMatches,
+      nextOffset: offset + items.length,
+    }
+  }
+
+  outer: for (const shardMeta of manifest.shards) {
+    const poems = await loadShard(shardMeta.index, { cache: false })
 
     for (const poem of poems) {
       if (!inNotebook(poem, notebook)) continue
       const hit = buildSearchHit(poem, shardMeta.index, qLower)
       if (!hit) continue
 
-      if (total >= offset && items.length < limit) {
-        items.push(hit)
+      if (seenMatches < offset) {
+        seenMatches++
+        continue
       }
-      total++
+
+      if (items.length < limit) {
+        items.push(hit)
+        seenMatches++
+        continue
+      }
+
+      hasMore = true
+      break outer
     }
   }
 
   return {
     items,
-    total,
+    total: null,
     offset,
     limit,
-    hasMore: offset + items.length < total,
+    hasMore,
+    nextOffset: offset + items.length,
   }
 }
 

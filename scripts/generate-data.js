@@ -328,6 +328,7 @@ async function main() {
         preview: (p.content || []).slice(0, 2).join(''),
         source: p.source || '',
         shard: shardIdx,
+        hasAnnotation: Array.isArray(p.annotation) && p.annotation.length > 0,
       })
     }
 

@@ -15,6 +15,8 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const q = searchParams.get('q')?.trim() || ''
+    const withTotalRaw = searchParams.get('withTotal')?.trim()
+    const withTotal = withTotalRaw === '1' || withTotalRaw === 'true'
     const notebookRaw = searchParams.get('notebook')?.trim()
     const notebook = notebookRaw === 'annotated' || notebookRaw === 'plain'
       ? notebookRaw
@@ -28,6 +30,7 @@ export async function GET(req: NextRequest) {
       notebook,
       offset,
       limit,
+      withTotal,
     })
 
     return NextResponse.json(result)

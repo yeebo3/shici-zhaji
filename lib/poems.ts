@@ -8,6 +8,7 @@ export type PoemQuery = {
   notebook?: PoemNotebookId
   offset?: number
   limit?: number
+  signal?: AbortSignal
 }
 
 export type PoemQueryResult = {
@@ -20,8 +21,8 @@ export type PoemQueryResult = {
 
 let manifestCache: Manifest | null = null
 
-async function fetchJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url)
+async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init)
   if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`)
   return res.json()
 }
@@ -40,9 +41,10 @@ function buildQueryString(query: PoemQuery): string {
 
 /** 查询诗词索引（服务端分页检索） */
 export async function queryPoems(query: PoemQuery): Promise<PoemQueryResult> {
-  const qs = buildQueryString(query)
+  const { signal, ...rest } = query
+  const qs = buildQueryString(rest)
   const url = `/api/poems${qs ? `?${qs}` : ''}`
-  return fetchJSON<PoemQueryResult>(url)
+  return fetchJSON<PoemQueryResult>(url, signal ? { signal } : undefined)
 }
 
 /** 兼容旧接口：返回第一页 */
@@ -63,13 +65,19 @@ export async function searchPoemsFullText(params: {
   offset?: number
   limit?: number
   notebook?: PoemNotebookId
+  withTotal?: boolean
+  signal?: AbortSignal
 }): Promise<FullTextSearchResult> {
   const usp = new URLSearchParams()
   usp.set('q', params.q)
   usp.set('offset', String(params.offset ?? 0))
   usp.set('limit', String(params.limit ?? 120))
   if (params.notebook) usp.set('notebook', params.notebook)
-  return fetchJSON<FullTextSearchResult>(`/api/poems/fulltext?${usp.toString()}`)
+  if (params.withTotal) usp.set('withTotal', '1')
+  return fetchJSON<FullTextSearchResult>(
+    `/api/poems/fulltext?${usp.toString()}`,
+    params.signal ? { signal: params.signal } : undefined
+  )
 }
 
 /** 按朝代筛选（默认返回第一页） */

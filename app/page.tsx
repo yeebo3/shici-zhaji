@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import Navbar from '@/components/Navbar'
 import PoemCard from '@/components/PoemCard'
 import Loading from '@/components/Loading'
@@ -19,6 +19,7 @@ import { BookOpen, Shuffle, ArrowRight, Bookmark } from 'lucide-react'
 const PAGE_SIZE = 120
 
 export default function HomePage() {
+  const router = useRouter()
   const pathname = usePathname()
   const currentPath = pathname || '/'
   const [daily, setDaily] = useState<PoemIndex | null>(null)
@@ -76,7 +77,7 @@ export default function HomePage() {
 
   const handleRandom = async () => {
     const p = await getRandomPoemIndex()
-    window.location.href = `/poem/${p.id}?from=${encodeURIComponent(currentPath || '/')}`
+    router.push(`/poem/${p.id}?from=${encodeURIComponent(currentPath || '/')}`)
   }
 
   if (loading) return <div className="min-h-screen"><Navbar /><Loading /></div>

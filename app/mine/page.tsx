@@ -112,7 +112,7 @@ export default function MinePage() {
       <main className="max-w-2xl mx-auto px-4 py-6">
         <h1 className="font-serif text-xl font-semibold mb-6">我的学习</h1>
 
-        <div className="grid grid-cols-4 gap-3 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
           {statCards.map(({ label, value, icon: Icon, color }) => (
             <div key={label} className="card p-4 text-center">
               <Icon size={18} className={`mx-auto mb-2 ${color}`} />
