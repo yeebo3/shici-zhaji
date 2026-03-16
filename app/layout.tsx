@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import PageTransition from '@/components/PageTransition'
 
 export const metadata: Metadata = {
   title: '诗词札记',
@@ -14,7 +15,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body className="min-h-screen">
-        {children}
+        <PageTransition>{children}</PageTransition>
       </body>
     </html>
   )
