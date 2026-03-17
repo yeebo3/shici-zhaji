@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import Loading from '@/components/Loading'
@@ -35,28 +35,60 @@ const fontSizes = [
   { key: 'large', label: '大' },
 ]
 
-export default function PoemDetailPage() {
-  const params = useParams()
+function decodePoemId(rawId: string | null): string {
+  if (!rawId) return ''
+  try {
+    return decodeURIComponent(rawId)
+  } catch {
+    return rawId
+  }
+}
+
+function parseShardHint(raw: string | null): number | undefined {
+  if (raw === null) return undefined
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isInteger(parsed) || parsed < 0) return undefined
+  return parsed
+}
+
+function PoemPageFallback() {
+  return <div className="min-h-screen"><Navbar /><Loading /></div>
+}
+
+function PoemDetailPageContent() {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const id = decodeURIComponent(params.id as string)
+  const id = decodePoemId(searchParams.get('id'))
+  const shardHint = parseShardHint(searchParams.get('s'))
   const [poem, setPoem] = useState<Poem | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('original')
   const [showFontPanel, setShowFontPanel] = useState(false)
   const [showGroupPanel, setShowGroupPanel] = useState(false)
-  const { isFavorite, toggle: toggleFav } = useFavorite(id)
+  const { isFavorite, toggle: toggleFav } = useFavorite(id || '')
   const { fontSize, setFontSize, fontClass } = useFontSize()
 
   useEffect(() => {
     async function load() {
+      if (!id) {
+        setPoem(null)
+        setError('缺少诗词参数')
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+      setError(null)
+
       try {
-        const p = await getPoemById(id)
+        const p = await getPoemById(id, shardHint)
         if (p) {
           setPoem(p)
-          markViewed(id)
+          void markViewed(id, shardHint)
+        } else {
+          setPoem(null)
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : '数据加载失败'
@@ -66,9 +98,9 @@ export default function PoemDetailPage() {
       }
     }
     load()
-  }, [id])
+  }, [id, shardHint])
 
-  if (loading) return <div className="min-h-screen"><Navbar /><Loading /></div>
+  if (loading) return <PoemPageFallback />
 
   if (error) {
     return (
@@ -90,13 +122,13 @@ export default function PoemDetailPage() {
 
   const from = searchParams.get('from')
   const backTarget = from && from.startsWith('/') && from !== pathname ? from : null
-  const reciteFrom = backTarget || pathname || `/poem/${poem.id}`
+  const currentPoemPath = `/poem?id=${encodeURIComponent(poem.id)}${shardHint !== undefined ? `&s=${shardHint}` : ''}`
+  const reciteFrom = backTarget || currentPoemPath
 
   return (
     <div className="min-h-screen">
       <Navbar />
       <main className="max-w-2xl mx-auto px-4 py-6">
-        {/* Back + Actions */}
         <div className="flex items-center justify-between mb-6">
           <button
             onClick={() => backTarget ? router.push(backTarget) : router.back()}
@@ -114,7 +146,7 @@ export default function PoemDetailPage() {
               <Type size={16} />
             </button>
             <button
-              onClick={toggleFav}
+              onClick={() => { void toggleFav() }}
               className={`btn-ghost p-2 ${isFavorite ? 'text-red-400' : ''}`}
               aria-label="收藏"
             >
@@ -130,7 +162,6 @@ export default function PoemDetailPage() {
           </div>
         </div>
 
-        {/* Font Size Panel */}
         {showFontPanel && (
           <div className="card p-3 mb-4 flex items-center justify-center gap-2">
             <span className="text-xs text-ash mr-2">字号</span>
@@ -155,13 +186,11 @@ export default function PoemDetailPage() {
           onClose={() => setShowGroupPanel(false)}
         />
 
-        {/* Title Block */}
         <div className="text-center mb-8">
           <h1 className="font-serif text-2xl font-semibold mb-2">{poem.title}</h1>
           <p className="text-sm text-ash">〔{poem.dynasty}〕{poem.author}</p>
         </div>
 
-        {/* View Mode Tabs */}
         <div className="flex justify-center gap-1 mb-8">
           {viewModes.map(({ key, label, icon: Icon }) => (
             <button
@@ -179,7 +208,6 @@ export default function PoemDetailPage() {
           ))}
         </div>
 
-        {/* Poem Content */}
         <section className="mb-8">
           <div className="text-center space-y-1">
             {poem.content.map((line, i) => (
@@ -190,7 +218,6 @@ export default function PoemDetailPage() {
           </div>
         </section>
 
-        {/* Annotations */}
         {(viewMode === 'annotated' || viewMode === 'all') && (
           <section className="mb-8">
             <h3 className="text-xs text-ash tracking-widest uppercase mb-3 text-center">注释</h3>
@@ -202,7 +229,6 @@ export default function PoemDetailPage() {
           </section>
         )}
 
-        {/* Translation */}
         {(viewMode === 'annotated' || viewMode === 'all') && (
           <section className="mb-8">
             <h3 className="text-xs text-ash tracking-widest uppercase mb-3 text-center">译文</h3>
@@ -214,7 +240,6 @@ export default function PoemDetailPage() {
           </section>
         )}
 
-        {/* Appreciation */}
         {(viewMode === 'appreciation' || viewMode === 'all') && (
           <section className="mb-8">
             <h3 className="text-xs text-ash tracking-widest uppercase mb-3 text-center">赏析</h3>
@@ -224,17 +249,15 @@ export default function PoemDetailPage() {
           </section>
         )}
 
-        {/* Tags */}
         <div className="flex justify-center gap-2 mb-8">
           {poem.tags.map(tag => (
             <span key={tag} className="tag">{tag}</span>
           ))}
         </div>
 
-        {/* Start Recite */}
         <div className="text-center pb-8">
           <Link
-            href={`/recite/${poem.id}?from=${encodeURIComponent(reciteFrom)}`}
+            href={`/recite?id=${encodeURIComponent(poem.id)}${shardHint !== undefined ? `&s=${shardHint}` : ''}&from=${encodeURIComponent(reciteFrom)}`}
             className="btn-primary inline-flex items-center gap-1.5"
           >
             <BookOpen size={14} />
@@ -243,5 +266,13 @@ export default function PoemDetailPage() {
         </div>
       </main>
     </div>
+  )
+}
+
+export default function PoemDetailPage() {
+  return (
+    <Suspense fallback={<PoemPageFallback />}>
+      <PoemDetailPageContent />
+    </Suspense>
   )
 }

@@ -2,12 +2,15 @@ import { NextResponse } from 'next/server'
 import { getPoemById } from '@/lib/server-poems'
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: { id: string } }
 ) {
   try {
     const id = decodeURIComponent(params.id)
-    const poem = await getPoemById(id)
+    const url = new URL(req.url)
+    const rawShard = url.searchParams.get('shard')
+    const shardHint = rawShard !== null ? Number.parseInt(rawShard, 10) : undefined
+    const poem = await getPoemById(id, Number.isInteger(shardHint) ? shardHint : undefined)
     if (!poem) {
       return NextResponse.json({ error: 'not found' }, { status: 404 })
     }

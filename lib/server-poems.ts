@@ -56,6 +56,20 @@ function buildPreview(content: string[] | undefined): string {
   return (content || []).slice(0, 2).join('')
 }
 
+function toPoemIndex(poem: Poem, shard: number): PoemIndex {
+  return {
+    id: poem.id,
+    title: poem.title,
+    author: poem.author,
+    dynasty: poem.dynasty,
+    tags: poem.tags || [],
+    preview: buildPreview(poem.content),
+    source: poem.source || '',
+    shard,
+    hasAnnotation: hasAnnotation(poem),
+  }
+}
+
 async function loadIndex(): Promise<PoemIndex[]> {
   if (indexCache) return indexCache
   const raw = await fs.readFile(INDEX_PATH, 'utf-8')
@@ -128,6 +142,63 @@ async function getNotebookIndex(notebook: PoemNotebookId): Promise<PoemIndex[]> 
   return notebookIndexCache?.[normalized] || []
 }
 
+async function getPoemIndexByGlobalOffset(globalOffset: number): Promise<PoemIndex | null> {
+  const manifest = await loadManifest()
+  const total = Number.isFinite(manifest.total) ? manifest.total : 0
+  if (!Number.isFinite(globalOffset) || globalOffset < 0 || globalOffset >= total) return null
+
+  let remain = globalOffset
+  for (const shardMeta of manifest.shards) {
+    if (remain >= shardMeta.count) {
+      remain -= shardMeta.count
+      continue
+    }
+
+    const poems = await loadShard(shardMeta.index)
+    const poem = poems[remain]
+    if (!poem) return null
+    return toPoemIndex(poem, shardMeta.index)
+  }
+
+  return null
+}
+
+async function queryAllByManifest(offset: number, limit: number): Promise<{ items: PoemIndex[]; total: number }> {
+  const manifest = await loadManifest()
+  const total = Number.isFinite(manifest.total) ? manifest.total : 0
+  if (offset >= total) {
+    return { items: [], total }
+  }
+
+  let remainingSkip = offset
+  let remainingTake = limit
+  const items: PoemIndex[] = []
+
+  for (const shardMeta of manifest.shards) {
+    if (remainingTake <= 0) break
+
+    if (remainingSkip >= shardMeta.count) {
+      remainingSkip -= shardMeta.count
+      continue
+    }
+
+    const poems = await loadShard(shardMeta.index)
+    const start = remainingSkip
+    const end = Math.min(poems.length, start + remainingTake)
+
+    for (let i = start; i < end; i++) {
+      const poem = poems[i]
+      if (!poem) continue
+      items.push(toPoemIndex(poem, shardMeta.index))
+    }
+
+    remainingTake -= (end - start)
+    remainingSkip = 0
+  }
+
+  return { items, total }
+}
+
 type QueryOptions = {
   q?: string
   dynasty?: string
@@ -162,8 +233,13 @@ export async function queryPoemIndex(opts: QueryOptions): Promise<{
   total: number
 }> {
   const notebook = normalizeNotebook(opts.notebook)
-  const index = await getNotebookIndex(notebook)
   const { q, dynasty, author, tag, offset, limit } = opts
+
+  if (!q && !dynasty && !author && !tag && notebook === 'all') {
+    return queryAllByManifest(offset, limit)
+  }
+
+  const index = await getNotebookIndex(notebook)
 
   if (!q && !dynasty && !author && !tag) {
     return {
@@ -342,7 +418,13 @@ export async function getPoemIndexByIds(ids: string[]): Promise<PoemIndex[]> {
   return out
 }
 
-export async function getPoemById(id: string): Promise<Poem | null> {
+export async function getPoemById(id: string, shardHint?: number): Promise<Poem | null> {
+  if (Number.isInteger(shardHint) && shardHint !== undefined && shardHint >= 0) {
+    const poemsByHint = await loadShard(shardHint)
+    const foundByHint = poemsByHint.find(p => p.id === id)
+    if (foundByHint) return foundByHint
+  }
+
   const idx = await getPoemIndexById(id)
   if (!idx) return null
 
@@ -351,6 +433,16 @@ export async function getPoemById(id: string): Promise<Poem | null> {
 }
 
 export async function getRandomPoemIndex(notebook: PoemNotebookId = 'all'): Promise<PoemIndex> {
+  if (normalizeNotebook(notebook) === 'all') {
+    const manifest = await loadManifest()
+    const total = Number.isFinite(manifest.total) ? manifest.total : 0
+    if (total > 0) {
+      const picked = Math.floor(Math.random() * total)
+      const fromShard = await getPoemIndexByGlobalOffset(picked)
+      if (fromShard) return fromShard
+    }
+  }
+
   const source = await getNotebookIndex(notebook)
   if (source.length === 0) {
     const index = await loadIndex()
@@ -360,6 +452,19 @@ export async function getRandomPoemIndex(notebook: PoemNotebookId = 'all'): Prom
 }
 
 export async function getDailyPoemIndex(notebook: PoemNotebookId = 'all'): Promise<PoemIndex> {
+  if (normalizeNotebook(notebook) === 'all') {
+    const manifest = await loadManifest()
+    const total = Number.isFinite(manifest.total) ? manifest.total : 0
+    if (total > 0) {
+      const today = new Date()
+      const dayOfYear = Math.floor(
+        (today.getTime() - new Date(today.getFullYear(), 0, 0).getTime()) / 86400000
+      )
+      const fromShard = await getPoemIndexByGlobalOffset(dayOfYear % total)
+      if (fromShard) return fromShard
+    }
+  }
+
   const source = await getNotebookIndex(notebook)
   const index = source.length > 0 ? source : await loadIndex()
   const today = new Date()

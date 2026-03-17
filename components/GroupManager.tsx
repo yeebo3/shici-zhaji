@@ -103,27 +103,27 @@ export default function GroupManager() {
     }
   }
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const name = newGroupName.trim()
     if (!name) return
-    const created = createGroup(name)
+    const created = await createGroup(name)
     setNewGroupName('')
     setActiveGroupId(created.id)
     setIsEditing(false)
   }
 
-  const handleRename = () => {
+  const handleRename = async () => {
     if (!activeCustomGroup) return
     const name = editingName.trim()
     if (!name) return
-    const ok = renameGroup(activeCustomGroup.id, name)
+    const ok = await renameGroup(activeCustomGroup.id, name)
     if (ok) setIsEditing(false)
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!activeCustomGroup) return
     if (!window.confirm(`确定删除分组「${activeCustomGroup.name}」吗？`)) return
-    deleteGroup(activeCustomGroup.id)
+    await deleteGroup(activeCustomGroup.id)
     setActiveGroupId(BUILTIN_ANNOTATED_ID)
     setIsEditing(false)
   }
@@ -139,7 +139,7 @@ export default function GroupManager() {
             placeholder="例如：期中背诵、送别诗"
             className="flex-1 px-3 py-2 rounded-md bg-cream dark:bg-night-card border border-stone/20 dark:border-stone/10 text-sm"
           />
-          <button onClick={handleCreate} className="btn-ghost px-3 inline-flex items-center gap-1">
+          <button onClick={() => { void handleCreate() }} className="btn-ghost px-3 inline-flex items-center gap-1">
             <Plus size={13} />
             新建
           </button>
@@ -206,7 +206,7 @@ export default function GroupManager() {
               >
                 <Pencil size={14} />
               </button>
-              <button className="btn-ghost p-2 text-rose-500" onClick={handleDelete} aria-label="删除分组">
+              <button className="btn-ghost p-2 text-rose-500" onClick={() => { void handleDelete() }} aria-label="删除分组">
                 <Trash2 size={14} />
               </button>
             </div>
@@ -219,7 +219,7 @@ export default function GroupManager() {
                 onChange={e => setEditingName(e.target.value)}
                 className="flex-1 px-3 py-2 rounded-md bg-cream dark:bg-night-card border border-stone/20 dark:border-stone/10 text-sm"
               />
-              <button className="btn-ghost px-3 inline-flex items-center gap-1" onClick={handleRename}>
+              <button className="btn-ghost px-3 inline-flex items-center gap-1" onClick={() => { void handleRename() }}>
                 <Check size={13} />
                 保存
               </button>
@@ -240,7 +240,7 @@ export default function GroupManager() {
             <PoemCard poem={poem} />
             {!isBuiltinAnnotated && activeCustomGroup && (
               <button
-                onClick={() => removePoem(activeCustomGroup.id, poem.id)}
+                onClick={() => { void removePoem(activeCustomGroup.id, poem.id) }}
                 className="absolute top-3 right-3 btn-ghost text-xs px-2 py-1 text-rose-500"
               >
                 移出分组

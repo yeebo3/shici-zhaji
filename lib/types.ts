@@ -45,6 +45,7 @@ export type Manifest = {
 
 export type StudyRecord = {
   poemId: string
+  shard?: number
   viewedAt: string
   memorized: boolean
   reviewCount: number

@@ -23,16 +23,16 @@ export default function MinePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const refreshStudyMeta = useCallback(() => {
-    refresh()
-    const recent = getRecentlyViewed().map(r => r.poemId)
+  const refreshStudyMeta = useCallback(async () => {
+    await refresh()
+    const recent = (await getRecentlyViewed()).map(r => r.poemId)
     setRecentIds(recent)
   }, [refresh])
 
   useEffect(() => {
-    refreshStudyMeta()
+    void refreshStudyMeta()
 
-    const onFocus = () => refreshStudyMeta()
+    const onFocus = () => { void refreshStudyMeta() }
     window.addEventListener('focus', onFocus)
     window.addEventListener('storage', onFocus)
     return () => {
@@ -47,8 +47,10 @@ export default function MinePage() {
     async function load() {
       setLoading(true)
       try {
-        const favoriteIds = getFavorites()
-        const memorizedIds = getMemorized()
+        const [favoriteIds, memorizedIds] = await Promise.all([
+          getFavorites(),
+          getMemorized(),
+        ])
 
         const [recent, favorites, memorized] = await Promise.all([
           getPoemIndexByIds(recentIds),

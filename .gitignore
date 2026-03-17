@@ -1,8 +1,12 @@
 node_modules/
 .next/
+.next-static/
+out/
+.desktop-build-temp/
 .env*
 *.log
 *.tsbuildinfo
+dist-desktop/
 
 # Large or sensitive data artifacts
 data/**/*.json
@@ -10,6 +14,7 @@ data/**/*.zip
 data/poems.ts
 public/data/**/*.json
 public/data/**/*.zip
+public/data/**/*.db
 
 # Keep small sample files for repository demo
 !data/examples/

@@ -1,0 +1,46 @@
+{
+  "appId": "com.yeebo.shicizhaji",
+  "productName": "诗词札记",
+  "electronVersion": "38.2.2",
+  "directories": {
+    "output": "dist-desktop/installers"
+  },
+  "files": [
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "dist-desktop/static-runtime",
+      "to": "app-runtime"
+    }
+  ],
+  "extraMetadata": {
+    "main": "electron/main-static.cjs"
+  },
+  "npmRebuild": false,
+  "electronLanguages": [
+    "zh-CN",
+    "en-US"
+  ],
+  "win": {
+    "icon": "build/icon.ico",
+    "artifactName": "${productName}-${version}.${ext}",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "signAndEditExecutable": true
+  },
+  "nsis": {
+    "installerIcon": "build/icon.ico",
+    "uninstallerIcon": "build/icon.ico",
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}

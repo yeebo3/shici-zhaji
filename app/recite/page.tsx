@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
-import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Navbar from '@/components/Navbar'
 import Loading from '@/components/Loading'
 import { getPoemById, getPoemNotebooks, getRandomPoemIndex } from '@/lib/poems'
@@ -27,12 +27,32 @@ const modes: { key: ReciteMode; label: string; icon: React.ElementType }[] = [
   { key: 'test', label: '自测', icon: HelpCircle },
 ]
 
-export default function RecitePage() {
-  const params = useParams()
+function decodePoemId(rawId: string | null): string {
+  if (!rawId) return ''
+  try {
+    return decodeURIComponent(rawId)
+  } catch {
+    return rawId
+  }
+}
+
+function parseShardHint(raw: string | null): number | undefined {
+  if (raw === null) return undefined
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isInteger(parsed) || parsed < 0) return undefined
+  return parsed
+}
+
+function RecitePageFallback() {
+  return <div className="min-h-screen"><Navbar /><Loading /></div>
+}
+
+function RecitePageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { notebook, setNotebook } = useReciteNotebook()
-  const id = decodeURIComponent(params.id as string)
+  const id = decodePoemId(searchParams.get('id'))
+  const shardHint = parseShardHint(searchParams.get('s'))
   const [entryFrom, setEntryFrom] = useState('/')
   const [poem, setPoem] = useState<Poem | null>(null)
   const [notebooks, setNotebooks] = useState<PoemNotebook[]>([])
@@ -46,11 +66,23 @@ export default function RecitePage() {
 
   useEffect(() => {
     async function load() {
+      if (!id) {
+        setPoem(null)
+        setError('缺少诗词参数')
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+      setError(null)
+
       try {
-        const p = await getPoemById(id)
+        const p = await getPoemById(id, shardHint)
         if (p) {
           setPoem(p)
-          markViewed(id)
+          void markViewed(id, shardHint)
+        } else {
+          setPoem(null)
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : '数据加载失败'
@@ -60,7 +92,7 @@ export default function RecitePage() {
       }
     }
     load()
-  }, [id])
+  }, [id, shardHint])
 
   useEffect(() => {
     let cancelled = false
@@ -83,7 +115,7 @@ export default function RecitePage() {
 
   useEffect(() => {
     const from = searchParams.get('from')
-    if (from && from.startsWith('/') && !from.startsWith('/recite/')) {
+    if (from && from.startsWith('/') && !from.startsWith('/recite')) {
       setEntryFrom(from)
       return
     }
@@ -97,7 +129,7 @@ export default function RecitePage() {
       const ref = document.referrer
       if (ref) {
         const url = new URL(ref)
-        if (url.origin === window.location.origin && !url.pathname.startsWith('/recite/')) {
+        if (url.origin === window.location.origin && !url.pathname.startsWith('/recite')) {
           const path = `${url.pathname}${url.search}`
           setEntryFrom(path || '/')
           return
@@ -146,19 +178,25 @@ export default function RecitePage() {
   }
 
   const handleMemorized = () => {
-    if (poem) { markMemorized(poem.id, true); setResult('memorized') }
+    if (poem) {
+      void markMemorized(poem.id, true)
+      setResult('memorized')
+    }
   }
 
   const handleForgot = () => {
-    if (poem) { markMemorized(poem.id, false); setResult('forgot') }
+    if (poem) {
+      void markMemorized(poem.id, false)
+      setResult('forgot')
+    }
   }
 
   const handleNext = async () => {
     const p = await getRandomPoemIndex(notebook)
-    router.push(`/recite/${p.id}?from=${encodeURIComponent(entryFrom)}`)
+    router.push(`/recite?id=${encodeURIComponent(p.id)}&s=${p.shard}&from=${encodeURIComponent(entryFrom)}`)
   }
 
-  if (loading) return <div className="min-h-screen"><Navbar /><Loading /></div>
+  if (loading) return <RecitePageFallback />
 
   if (error) {
     return (
@@ -202,7 +240,6 @@ export default function RecitePage() {
           <p className="text-sm text-ash mt-1">〔{poem.dynasty}〕{poem.author}</p>
         </div>
 
-        {/* Progress */}
         <div className="mb-6">
           <div className="h-1 bg-stone/15 dark:bg-stone/10 rounded-full overflow-hidden">
             <div className="h-full bg-ink/30 dark:bg-night-text/30 rounded-full transition-all duration-500"
@@ -211,14 +248,13 @@ export default function RecitePage() {
           <p className="text-xs text-ash text-center mt-1.5">{progress}%</p>
         </div>
 
-        {/* Notebook Selector */}
         <div className="mb-6">
           <p className="text-xs text-ash tracking-widest uppercase text-center mb-2">背诵范围</p>
           <div className="flex flex-wrap justify-center gap-1.5">
             {notebooks.map(item => (
               <button
                 key={item.id}
-                onClick={() => setNotebook(item.id)}
+                onClick={() => { void setNotebook(item.id) }}
                 className={`px-3 py-1.5 rounded-md text-xs transition-colors ${
                   notebook === item.id
                     ? 'bg-ink/10 dark:bg-white/10 text-ink dark:text-night-text'
@@ -232,7 +268,6 @@ export default function RecitePage() {
           </div>
         </div>
 
-        {/* Mode Selector */}
         <div className="flex justify-center gap-1 mb-8">
           {modes.map(({ key, label, icon: Icon }) => (
             <button key={key} onClick={() => handleModeChange(key)}
@@ -244,7 +279,6 @@ export default function RecitePage() {
           ))}
         </div>
 
-        {/* Content */}
         <div className="card p-8 mb-6 min-h-[240px] flex flex-col items-center justify-center">
           {mode === 'read' && (
             <div className="text-center space-y-1">
@@ -329,5 +363,13 @@ export default function RecitePage() {
         </div>
       </main>
     </div>
+  )
+}
+
+export default function RecitePage() {
+  return (
+    <Suspense fallback={<RecitePageFallback />}>
+      <RecitePageContent />
+    </Suspense>
   )
 }

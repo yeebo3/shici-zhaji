@@ -45,13 +45,19 @@ export function useFavorite(poemId: string) {
   const [isFavorite, setIsFavorite] = useState(false)
 
   useEffect(() => {
-    const record = storage.getStudyRecord(poemId)
-    setIsFavorite(record?.favorite || false)
+    let cancelled = false
+    async function load() {
+      const record = await storage.getStudyRecord(poemId)
+      if (!cancelled) setIsFavorite(record?.favorite || false)
+    }
+    void load()
+    return () => { cancelled = true }
   }, [poemId])
 
-  const toggle = useCallback(() => {
-    const newVal = storage.toggleFavorite(poemId)
+  const toggle = useCallback(async () => {
+    const newVal = await storage.toggleFavorite(poemId)
     setIsFavorite(newVal)
+    return newVal
   }, [poemId])
 
   return { isFavorite, toggle }
@@ -60,13 +66,15 @@ export function useFavorite(poemId: string) {
 export function useStudyStats() {
   const [stats, setStats] = useState({ totalViewed: 0, totalFavorites: 0, totalMemorized: 0, totalReviews: 0 })
 
-  useEffect(() => {
-    setStats(storage.getStats())
+  const refresh = useCallback(async () => {
+    const next = await storage.getStats()
+    setStats(next)
+    return next
   }, [])
 
-  const refresh = useCallback(() => {
-    setStats(storage.getStats())
-  }, [])
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
 
   return { stats, refresh }
 }
@@ -75,7 +83,13 @@ export function useRecentlyViewed() {
   const [records, setRecords] = useState<StudyRecord[]>([])
 
   useEffect(() => {
-    setRecords(storage.getRecentlyViewed())
+    let cancelled = false
+    async function load() {
+      const next = await storage.getRecentlyViewed()
+      if (!cancelled) setRecords(next)
+    }
+    void load()
+    return () => { cancelled = true }
   }, [])
 
   return records
@@ -85,12 +99,18 @@ export function useReciteNotebook() {
   const [notebook, setNotebookState] = useState<PoemNotebookId>('all')
 
   useEffect(() => {
-    setNotebookState(storage.getReciteNotebook())
+    let cancelled = false
+    async function load() {
+      const next = await storage.getReciteNotebook()
+      if (!cancelled) setNotebookState(next)
+    }
+    void load()
+    return () => { cancelled = true }
   }, [])
 
-  const setNotebook = useCallback((next: PoemNotebookId) => {
+  const setNotebook = useCallback(async (next: PoemNotebookId) => {
     setNotebookState(next)
-    storage.setReciteNotebook(next)
+    await storage.setReciteNotebook(next)
   }, [])
 
   return { notebook, setNotebook }
@@ -99,40 +119,42 @@ export function useReciteNotebook() {
 export function usePoemGroups() {
   const [groups, setGroups] = useState<PoemGroup[]>([])
 
-  const refresh = useCallback(() => {
-    setGroups(storage.getPoemGroups())
+  const refresh = useCallback(async () => {
+    const next = await storage.getPoemGroups()
+    setGroups(next)
+    return next
   }, [])
 
   useEffect(() => {
-    refresh()
+    void refresh()
   }, [refresh])
 
-  const createGroup = useCallback((name: string) => {
-    const next = storage.createPoemGroup(name)
-    refresh()
+  const createGroup = useCallback(async (name: string) => {
+    const next = await storage.createPoemGroup(name)
+    await refresh()
     return next
   }, [refresh])
 
-  const renameGroup = useCallback((groupId: string, name: string) => {
-    const ok = storage.renamePoemGroup(groupId, name)
-    if (ok) refresh()
+  const renameGroup = useCallback(async (groupId: string, name: string) => {
+    const ok = await storage.renamePoemGroup(groupId, name)
+    if (ok) await refresh()
     return ok
   }, [refresh])
 
-  const deleteGroup = useCallback((groupId: string) => {
-    storage.deletePoemGroup(groupId)
-    refresh()
+  const deleteGroup = useCallback(async (groupId: string) => {
+    await storage.deletePoemGroup(groupId)
+    await refresh()
   }, [refresh])
 
-  const togglePoem = useCallback((groupId: string, poemId: string) => {
-    const inGroup = storage.togglePoemInGroup(groupId, poemId)
-    refresh()
+  const togglePoem = useCallback(async (groupId: string, poemId: string) => {
+    const inGroup = await storage.togglePoemInGroup(groupId, poemId)
+    await refresh()
     return inGroup
   }, [refresh])
 
-  const removePoem = useCallback((groupId: string, poemId: string) => {
-    const ok = storage.removePoemFromGroup(groupId, poemId)
-    if (ok) refresh()
+  const removePoem = useCallback(async (groupId: string, poemId: string) => {
+    const ok = await storage.removePoemFromGroup(groupId, poemId)
+    if (ok) await refresh()
     return ok
   }, [refresh])
 

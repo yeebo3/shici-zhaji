@@ -11,7 +11,6 @@ import { getRecentlyViewed } from '@/lib/storage'
 import {
   getDailyPoemIndex,
   getRandomPoemIndex,
-  getPoemIndexById,
   queryPoems,
 } from '@/lib/poems'
 import { BookOpen, Shuffle, ArrowRight, Bookmark } from 'lucide-react'
@@ -23,7 +22,7 @@ export default function HomePage() {
   const pathname = usePathname()
   const currentPath = pathname || '/'
   const [daily, setDaily] = useState<PoemIndex | null>(null)
-  const [continuePoem, setContinuePoem] = useState<PoemIndex | null>(null)
+  const [continueEntry, setContinueEntry] = useState<{ id: string; shard?: number } | null>(null)
   const [allPoems, setAllPoems] = useState<PoemIndex[]>([])
   const [totalPoems, setTotalPoems] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -41,11 +40,13 @@ export default function HomePage() {
         setAllPoems(firstPage.items)
         setTotalPoems(firstPage.total)
 
-        // Check continue learning
-        const recent = getRecentlyViewed()
+        // Avoid triggering heavy index lookup during startup.
+        const recent = await getRecentlyViewed()
         if (recent.length > 0) {
-          const found = await getPoemIndexById(recent[0].poemId)
-          if (found) setContinuePoem(found)
+          setContinueEntry({
+            id: recent[0].poemId,
+            shard: recent[0].shard,
+          })
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : '数据加载失败'
@@ -77,7 +78,7 @@ export default function HomePage() {
 
   const handleRandom = async () => {
     const p = await getRandomPoemIndex()
-    router.push(`/poem/${p.id}?from=${encodeURIComponent(currentPath || '/')}`)
+    router.push(`/poem?id=${encodeURIComponent(p.id)}&s=${p.shard}&from=${encodeURIComponent(currentPath || '/')}`)
   }
 
   if (loading) return <div className="min-h-screen"><Navbar /><Loading /></div>
@@ -114,11 +115,11 @@ export default function HomePage() {
               </p>
             </div>
             <div className="flex justify-center gap-3">
-              <Link href={`/poem/${daily.id}?from=${encodeURIComponent(currentPath || '/')}`} className="btn-primary flex items-center gap-1.5">
+              <Link href={`/poem?id=${encodeURIComponent(daily.id)}&s=${daily.shard}&from=${encodeURIComponent(currentPath || '/')}`} className="btn-primary flex items-center gap-1.5">
                 <BookOpen size={14} />
                 阅读全文
               </Link>
-              <Link href={`/recite/${daily.id}?from=${encodeURIComponent(currentPath || '/')}`} className="btn-ghost flex items-center gap-1.5">
+              <Link href={`/recite?id=${encodeURIComponent(daily.id)}&s=${daily.shard}&from=${encodeURIComponent(currentPath || '/')}`} className="btn-ghost flex items-center gap-1.5">
                 <Bookmark size={14} />
                 开始背诵
               </Link>
@@ -127,15 +128,23 @@ export default function HomePage() {
         </section>
 
         {/* Continue Learning */}
-        {continuePoem && (
+        {continueEntry && (
           <section className="mb-10">
             <div className="flex items-center justify-between mb-4">
               <p className="text-xs text-ash tracking-widest uppercase">继续学习</p>
-              <Link href={`/poem/${continuePoem.id}?from=${encodeURIComponent(currentPath || '/')}`} className="text-xs text-ash hover:text-ink dark:hover:text-night-text flex items-center gap-1">
+              <Link href={`/poem?id=${encodeURIComponent(continueEntry.id)}${continueEntry.shard !== undefined ? `&s=${continueEntry.shard}` : ''}&from=${encodeURIComponent(currentPath || '/')}`} className="text-xs text-ash hover:text-ink dark:hover:text-night-text flex items-center gap-1">
                 继续 <ArrowRight size={12} />
               </Link>
             </div>
-            <PoemCard poem={continuePoem} />
+            <div className="card p-5">
+              <p className="text-sm text-ash mb-2">继续上次学习的诗词</p>
+              <Link
+                href={`/poem?id=${encodeURIComponent(continueEntry.id)}${continueEntry.shard !== undefined ? `&s=${continueEntry.shard}` : ''}&from=${encodeURIComponent(currentPath || '/')}`}
+                className="btn-ghost inline-flex items-center gap-1.5"
+              >
+                打开上次诗词 <ArrowRight size={12} />
+              </Link>
+            </div>
           </section>
         )}
 

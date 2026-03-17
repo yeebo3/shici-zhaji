@@ -5,8 +5,45 @@ const THEME_KEY = 'shici-theme'
 const FONT_KEY = 'shici-font-size'
 const GROUPS_KEY = 'shici-poem-groups'
 const RECITE_NOTEBOOK_KEY = 'shici-recite-notebook'
+const DESKTOP_MIGRATION_FLAG_KEY = 'shici-desktop-study-migrated-v1'
 
 const NOTEBOOK_IDS: PoemNotebookId[] = ['all', 'annotated', 'plain']
+
+type StudyStats = {
+  totalViewed: number
+  totalFavorites: number
+  totalMemorized: number
+  totalReviews: number
+}
+
+type DesktopStudyBridge = {
+  bootstrap: (payload: {
+    studyRecords: Record<string, StudyRecord>
+    groups: PoemGroup[]
+    reciteNotebook: PoemNotebookId
+  }) => Promise<unknown>
+  getStudyRecords: () => Promise<Record<string, StudyRecord>>
+  getStudyRecord: (poemId: string) => Promise<StudyRecord | null>
+  saveStudyRecord: (record: StudyRecord) => Promise<unknown>
+  markViewed: (poemId: string, shard?: number) => Promise<unknown>
+  toggleFavorite: (poemId: string) => Promise<boolean>
+  markMemorized: (poemId: string, memorized: boolean) => Promise<unknown>
+  getFavorites: () => Promise<string[]>
+  getMemorized: () => Promise<string[]>
+  getRecentlyViewed: (limit?: number) => Promise<StudyRecord[]>
+  getStats: () => Promise<StudyStats>
+  getReciteNotebook: () => Promise<PoemNotebookId | string>
+  setReciteNotebook: (notebook: PoemNotebookId) => Promise<PoemNotebookId | string>
+  getPoemGroups: () => Promise<PoemGroup[]>
+  createPoemGroup: (name: string) => Promise<PoemGroup>
+  renamePoemGroup: (groupId: string, name: string) => Promise<boolean>
+  deletePoemGroup: (groupId: string) => Promise<unknown>
+  addPoemToGroup: (groupId: string, poemId: string) => Promise<boolean>
+  removePoemFromGroup: (groupId: string, poemId: string) => Promise<boolean>
+  togglePoemInGroup: (groupId: string, poemId: string) => Promise<boolean>
+  getPoemGroupById: (groupId: string) => Promise<PoemGroup | null>
+  getGroupsForPoem: (poemId: string) => Promise<PoemGroup[]>
+}
 
 function safeReadJSON<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback
@@ -24,25 +61,68 @@ function safeWriteJSON(key: string, value: unknown): void {
   localStorage.setItem(key, JSON.stringify(value))
 }
 
-export function getStudyRecords(): Record<string, StudyRecord> {
-  return safeReadJSON<Record<string, StudyRecord>>(STUDY_KEY, {})
+function normalizeStudyRecord(input: unknown): StudyRecord | null {
+  if (!input || typeof input !== 'object') return null
+  const raw = input as Partial<StudyRecord>
+  if (typeof raw.poemId !== 'string' || !raw.poemId.trim()) return null
+  const reviewCount = Number.isInteger(raw.reviewCount) && (raw.reviewCount || 0) >= 0
+    ? Number(raw.reviewCount)
+    : 0
+  const shard = Number.isInteger(raw.shard) && (raw.shard || 0) >= 0
+    ? Number(raw.shard)
+    : undefined
+  const viewedAt = typeof raw.viewedAt === 'string' && raw.viewedAt
+    ? raw.viewedAt
+    : new Date().toISOString()
+  return {
+    poemId: raw.poemId.trim(),
+    shard,
+    viewedAt,
+    memorized: Boolean(raw.memorized),
+    reviewCount,
+    favorite: Boolean(raw.favorite),
+  }
 }
 
-export function getStudyRecord(poemId: string): StudyRecord | null {
-  const records = getStudyRecords()
-  return records[poemId] || null
+function getStudyRecordsLocal(): Record<string, StudyRecord> {
+  const raw = safeReadJSON<Record<string, unknown>>(STUDY_KEY, {})
+  const out: Record<string, StudyRecord> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    const normalized = normalizeStudyRecord(value)
+    if (!normalized) continue
+    const poemId = normalized.poemId || String(key || '').trim()
+    if (!poemId) continue
+    out[poemId] = { ...normalized, poemId }
+  }
+  return out
 }
 
-export function saveStudyRecord(record: StudyRecord): void {
-  const records = getStudyRecords()
-  records[record.poemId] = record
+function saveStudyRecordsLocal(records: Record<string, StudyRecord>): void {
   safeWriteJSON(STUDY_KEY, records)
 }
 
-export function markViewed(poemId: string): void {
-  const existing = getStudyRecord(poemId)
-  saveStudyRecord({
-    poemId,
+function getStudyRecordLocal(poemId: string): StudyRecord | null {
+  const normalizedId = poemId.trim()
+  if (!normalizedId) return null
+  const records = getStudyRecordsLocal()
+  return records[normalizedId] || null
+}
+
+function saveStudyRecordLocal(record: StudyRecord): void {
+  const normalized = normalizeStudyRecord(record)
+  if (!normalized) return
+  const records = getStudyRecordsLocal()
+  records[normalized.poemId] = normalized
+  saveStudyRecordsLocal(records)
+}
+
+function markViewedLocal(poemId: string, shard?: number): void {
+  const normalizedId = poemId.trim()
+  if (!normalizedId) return
+  const existing = getStudyRecordLocal(normalizedId)
+  saveStudyRecordLocal({
+    poemId: normalizedId,
+    shard: typeof shard === 'number' && Number.isInteger(shard) && shard >= 0 ? shard : existing?.shard,
     viewedAt: new Date().toISOString(),
     memorized: existing?.memorized || false,
     reviewCount: (existing?.reviewCount || 0) + 1,
@@ -50,11 +130,14 @@ export function markViewed(poemId: string): void {
   })
 }
 
-export function toggleFavorite(poemId: string): boolean {
-  const existing = getStudyRecord(poemId)
+function toggleFavoriteLocal(poemId: string): boolean {
+  const normalizedId = poemId.trim()
+  if (!normalizedId) return false
+  const existing = getStudyRecordLocal(normalizedId)
   const newFav = !(existing?.favorite || false)
-  saveStudyRecord({
-    poemId,
+  saveStudyRecordLocal({
+    poemId: normalizedId,
+    shard: existing?.shard,
     viewedAt: existing?.viewedAt || new Date().toISOString(),
     memorized: existing?.memorized || false,
     reviewCount: existing?.reviewCount || 0,
@@ -63,10 +146,13 @@ export function toggleFavorite(poemId: string): boolean {
   return newFav
 }
 
-export function markMemorized(poemId: string, memorized: boolean): void {
-  const existing = getStudyRecord(poemId)
-  saveStudyRecord({
-    poemId,
+function markMemorizedLocal(poemId: string, memorized: boolean): void {
+  const normalizedId = poemId.trim()
+  if (!normalizedId) return
+  const existing = getStudyRecordLocal(normalizedId)
+  saveStudyRecordLocal({
+    poemId: normalizedId,
+    shard: existing?.shard,
     viewedAt: existing?.viewedAt || new Date().toISOString(),
     memorized,
     reviewCount: existing?.reviewCount || 0,
@@ -74,29 +160,30 @@ export function markMemorized(poemId: string, memorized: boolean): void {
   })
 }
 
-export function getFavorites(): string[] {
-  const records = getStudyRecords()
+function getFavoritesLocal(): string[] {
+  const records = getStudyRecordsLocal()
   return Object.values(records)
     .filter(r => r.favorite)
     .map(r => r.poemId)
 }
 
-export function getMemorized(): string[] {
-  const records = getStudyRecords()
+function getMemorizedLocal(): string[] {
+  const records = getStudyRecordsLocal()
   return Object.values(records)
     .filter(r => r.memorized)
     .map(r => r.poemId)
 }
 
-export function getRecentlyViewed(): StudyRecord[] {
-  const records = getStudyRecords()
+function getRecentlyViewedLocal(limit = 20): StudyRecord[] {
+  const records = getStudyRecordsLocal()
+  const capped = Math.max(1, Number.parseInt(String(limit), 10) || 20)
   return Object.values(records)
     .sort((a, b) => new Date(b.viewedAt).getTime() - new Date(a.viewedAt).getTime())
-    .slice(0, 20)
+    .slice(0, capped)
 }
 
-export function getStats() {
-  const records = getStudyRecords()
+function getStatsLocal(): StudyStats {
+  const records = getStudyRecordsLocal()
   const all = Object.values(records)
   return {
     totalViewed: all.length,
@@ -104,6 +191,277 @@ export function getStats() {
     totalMemorized: all.filter(r => r.memorized).length,
     totalReviews: all.reduce((sum, r) => sum + r.reviewCount, 0),
   }
+}
+
+function getReciteNotebookLocal(): PoemNotebookId {
+  const raw = safeReadJSON<PoemNotebookId | string>(RECITE_NOTEBOOK_KEY, 'all')
+  if (typeof raw !== 'string') return 'all'
+  return NOTEBOOK_IDS.includes(raw as PoemNotebookId) ? (raw as PoemNotebookId) : 'all'
+}
+
+function setReciteNotebookLocal(notebook: PoemNotebookId): void {
+  safeWriteJSON(RECITE_NOTEBOOK_KEY, notebook)
+}
+
+function normalizeGroupLocal(group: unknown): PoemGroup | null {
+  if (!group || typeof group !== 'object') return null
+  const raw = group as Partial<PoemGroup>
+  const id = typeof raw.id === 'string' ? raw.id.trim() : ''
+  const name = typeof raw.name === 'string' ? raw.name.trim() : ''
+  if (!id || !name) return null
+  const createdAt = raw.createdAt || new Date().toISOString()
+  const updatedAt = raw.updatedAt || raw.createdAt || new Date().toISOString()
+  const poemIds = Array.isArray(raw.poemIds)
+    ? [...new Set(raw.poemIds.map(String).map(s => s.trim()).filter(Boolean))]
+    : []
+  return {
+    id,
+    name,
+    poemIds,
+    createdAt,
+    updatedAt,
+  }
+}
+
+function getPoemGroupsLocal(): PoemGroup[] {
+  const groups = safeReadJSON<unknown[]>(GROUPS_KEY, [])
+  if (!Array.isArray(groups)) return []
+  const out: PoemGroup[] = []
+  for (const group of groups) {
+    const normalized = normalizeGroupLocal(group)
+    if (normalized) out.push(normalized)
+  }
+  return out
+}
+
+function savePoemGroupsLocal(groups: PoemGroup[]): void {
+  safeWriteJSON(GROUPS_KEY, groups)
+}
+
+function makeGroupId(): string {
+  return `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function createPoemGroupLocal(name: string): PoemGroup {
+  const normalizedName = name.trim() || '未命名分组'
+  const now = new Date().toISOString()
+  const next: PoemGroup = {
+    id: makeGroupId(),
+    name: normalizedName,
+    poemIds: [],
+    createdAt: now,
+    updatedAt: now,
+  }
+  const groups = getPoemGroupsLocal()
+  groups.unshift(next)
+  savePoemGroupsLocal(groups)
+  return next
+}
+
+function renamePoemGroupLocal(groupId: string, name: string): boolean {
+  const nextName = name.trim()
+  if (!nextName) return false
+  const groups = getPoemGroupsLocal()
+  const found = groups.find(g => g.id === groupId)
+  if (!found) return false
+  found.name = nextName
+  found.updatedAt = new Date().toISOString()
+  savePoemGroupsLocal(groups)
+  return true
+}
+
+function deletePoemGroupLocal(groupId: string): void {
+  const groups = getPoemGroupsLocal().filter(g => g.id !== groupId)
+  savePoemGroupsLocal(groups)
+}
+
+function addPoemToGroupLocal(groupId: string, poemId: string): boolean {
+  const groups = getPoemGroupsLocal()
+  const found = groups.find(g => g.id === groupId)
+  if (!found) return false
+  if (!found.poemIds.includes(poemId)) {
+    found.poemIds.push(poemId)
+    found.updatedAt = new Date().toISOString()
+    savePoemGroupsLocal(groups)
+  }
+  return true
+}
+
+function removePoemFromGroupLocal(groupId: string, poemId: string): boolean {
+  const groups = getPoemGroupsLocal()
+  const found = groups.find(g => g.id === groupId)
+  if (!found) return false
+  const before = found.poemIds.length
+  found.poemIds = found.poemIds.filter(id => id !== poemId)
+  if (found.poemIds.length !== before) {
+    found.updatedAt = new Date().toISOString()
+    savePoemGroupsLocal(groups)
+    return true
+  }
+  return false
+}
+
+function togglePoemInGroupLocal(groupId: string, poemId: string): boolean {
+  const groups = getPoemGroupsLocal()
+  const found = groups.find(g => g.id === groupId)
+  if (!found) return false
+  const exists = found.poemIds.includes(poemId)
+  found.poemIds = exists
+    ? found.poemIds.filter(id => id !== poemId)
+    : [...found.poemIds, poemId]
+  found.updatedAt = new Date().toISOString()
+  savePoemGroupsLocal(groups)
+  return !exists
+}
+
+function getPoemGroupByIdLocal(groupId: string): PoemGroup | null {
+  const groups = getPoemGroupsLocal()
+  return groups.find(g => g.id === groupId) || null
+}
+
+function getGroupsForPoemLocal(poemId: string): PoemGroup[] {
+  return getPoemGroupsLocal().filter(g => g.poemIds.includes(poemId))
+}
+
+function getDesktopStudyBridge(): DesktopStudyBridge | null {
+  if (typeof window === 'undefined') return null
+  const withBridge = window as Window & {
+    desktopMeta?: { runtime?: string }
+    desktopStudy?: DesktopStudyBridge
+  }
+  if (withBridge.desktopMeta?.runtime !== 'static') return null
+  return withBridge.desktopStudy || null
+}
+
+let desktopBootstrapPromise: Promise<void> | null = null
+
+async function ensureDesktopBootstrap(bridge: DesktopStudyBridge): Promise<void> {
+  if (typeof window === 'undefined') return
+  if (desktopBootstrapPromise) return desktopBootstrapPromise
+
+  desktopBootstrapPromise = (async () => {
+    const alreadyDone = localStorage.getItem(DESKTOP_MIGRATION_FLAG_KEY) === '1'
+    if (alreadyDone) return
+
+    const payload = {
+      studyRecords: getStudyRecordsLocal(),
+      groups: getPoemGroupsLocal(),
+      reciteNotebook: getReciteNotebookLocal(),
+    }
+
+    try {
+      await bridge.bootstrap(payload)
+    } catch {
+      return
+    }
+
+    localStorage.setItem(DESKTOP_MIGRATION_FLAG_KEY, '1')
+  })()
+
+  return desktopBootstrapPromise
+}
+
+async function withDesktopBridge<T>(
+  action: (bridge: DesktopStudyBridge) => Promise<T>,
+  fallback: () => T
+): Promise<T> {
+  const bridge = getDesktopStudyBridge()
+  if (!bridge) return fallback()
+
+  await ensureDesktopBootstrap(bridge)
+
+  try {
+    return await action(bridge)
+  } catch {
+    return fallback()
+  }
+}
+
+export async function getStudyRecords(): Promise<Record<string, StudyRecord>> {
+  return withDesktopBridge(
+    bridge => bridge.getStudyRecords(),
+    () => getStudyRecordsLocal()
+  )
+}
+
+export async function getStudyRecord(poemId: string): Promise<StudyRecord | null> {
+  const normalizedId = poemId.trim()
+  if (!normalizedId) return null
+  return withDesktopBridge(
+    bridge => bridge.getStudyRecord(normalizedId),
+    () => getStudyRecordLocal(normalizedId)
+  )
+}
+
+export async function saveStudyRecord(record: StudyRecord): Promise<void> {
+  await withDesktopBridge(
+    bridge => bridge.saveStudyRecord(record).then(() => undefined),
+    () => {
+      saveStudyRecordLocal(record)
+      return undefined
+    }
+  )
+}
+
+export async function markViewed(poemId: string, shard?: number): Promise<void> {
+  const normalizedId = poemId.trim()
+  if (!normalizedId) return
+  await withDesktopBridge(
+    bridge => bridge.markViewed(normalizedId, shard).then(() => undefined),
+    () => {
+      markViewedLocal(normalizedId, shard)
+      return undefined
+    }
+  )
+}
+
+export async function toggleFavorite(poemId: string): Promise<boolean> {
+  const normalizedId = poemId.trim()
+  if (!normalizedId) return false
+  return withDesktopBridge(
+    bridge => bridge.toggleFavorite(normalizedId),
+    () => toggleFavoriteLocal(normalizedId)
+  )
+}
+
+export async function markMemorized(poemId: string, memorized: boolean): Promise<void> {
+  const normalizedId = poemId.trim()
+  if (!normalizedId) return
+  await withDesktopBridge(
+    bridge => bridge.markMemorized(normalizedId, memorized).then(() => undefined),
+    () => {
+      markMemorizedLocal(normalizedId, memorized)
+      return undefined
+    }
+  )
+}
+
+export async function getFavorites(): Promise<string[]> {
+  return withDesktopBridge(
+    bridge => bridge.getFavorites(),
+    () => getFavoritesLocal()
+  )
+}
+
+export async function getMemorized(): Promise<string[]> {
+  return withDesktopBridge(
+    bridge => bridge.getMemorized(),
+    () => getMemorizedLocal()
+  )
+}
+
+export async function getRecentlyViewed(limit = 20): Promise<StudyRecord[]> {
+  return withDesktopBridge(
+    bridge => bridge.getRecentlyViewed(limit),
+    () => getRecentlyViewedLocal(limit)
+  )
+}
+
+export async function getStats(): Promise<StudyStats> {
+  return withDesktopBridge(
+    bridge => bridge.getStats(),
+    () => getStatsLocal()
+  )
 }
 
 export function getTheme(): 'light' | 'dark' {
@@ -131,114 +489,113 @@ export function setFontSize(size: string): void {
   localStorage.setItem(FONT_KEY, size)
 }
 
-export function getReciteNotebook(): PoemNotebookId {
-  const raw = safeReadJSON<PoemNotebookId | string>(RECITE_NOTEBOOK_KEY, 'all')
-  if (typeof raw !== 'string') return 'all'
-  return NOTEBOOK_IDS.includes(raw as PoemNotebookId) ? (raw as PoemNotebookId) : 'all'
+export async function getReciteNotebook(): Promise<PoemNotebookId> {
+  const value = await withDesktopBridge(
+    bridge => bridge.getReciteNotebook(),
+    () => getReciteNotebookLocal()
+  )
+  if (typeof value !== 'string') return 'all'
+  return NOTEBOOK_IDS.includes(value as PoemNotebookId) ? (value as PoemNotebookId) : 'all'
 }
 
-export function setReciteNotebook(notebook: PoemNotebookId): void {
-  safeWriteJSON(RECITE_NOTEBOOK_KEY, notebook)
+export async function setReciteNotebook(notebook: PoemNotebookId): Promise<void> {
+  await withDesktopBridge(
+    bridge => bridge.setReciteNotebook(notebook).then(() => undefined),
+    () => {
+      setReciteNotebookLocal(notebook)
+      return undefined
+    }
+  )
 }
 
-export function getPoemGroups(): PoemGroup[] {
-  const groups = safeReadJSON<PoemGroup[]>(GROUPS_KEY, [])
-  if (!Array.isArray(groups)) return []
-  return groups
-    .filter(g => g && typeof g.id === 'string' && typeof g.name === 'string' && Array.isArray(g.poemIds))
-    .map(g => ({
-      id: g.id,
-      name: g.name.trim() || '未命名分组',
-      poemIds: [...new Set(g.poemIds.map(String))],
-      createdAt: g.createdAt || new Date().toISOString(),
-      updatedAt: g.updatedAt || g.createdAt || new Date().toISOString(),
-    }))
+export async function getPoemGroups(): Promise<PoemGroup[]> {
+  return withDesktopBridge(
+    bridge => bridge.getPoemGroups(),
+    () => getPoemGroupsLocal()
+  )
 }
 
-export function savePoemGroups(groups: PoemGroup[]): void {
-  safeWriteJSON(GROUPS_KEY, groups)
+export async function savePoemGroups(groups: PoemGroup[]): Promise<void> {
+  if (!Array.isArray(groups)) return
+  const normalized = groups
+    .map(normalizeGroupLocal)
+    .filter((g): g is PoemGroup => g !== null)
+  await withDesktopBridge(
+    async bridge => {
+      const existing = await bridge.getPoemGroups()
+      for (const group of existing) {
+        await bridge.deletePoemGroup(group.id)
+      }
+      for (const group of normalized) {
+        const created = await bridge.createPoemGroup(group.name)
+        for (const poemId of group.poemIds) {
+          await bridge.addPoemToGroup(created.id, poemId)
+        }
+      }
+      return undefined
+    },
+    () => {
+      savePoemGroupsLocal(normalized)
+      return undefined
+    }
+  )
 }
 
-function makeGroupId(): string {
-  return `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+export async function createPoemGroup(name: string): Promise<PoemGroup> {
+  return withDesktopBridge(
+    bridge => bridge.createPoemGroup(name),
+    () => createPoemGroupLocal(name)
+  )
 }
 
-export function createPoemGroup(name: string): PoemGroup {
-  const normalizedName = name.trim() || '未命名分组'
-  const now = new Date().toISOString()
-  const next: PoemGroup = {
-    id: makeGroupId(),
-    name: normalizedName,
-    poemIds: [],
-    createdAt: now,
-    updatedAt: now,
-  }
-  const groups = getPoemGroups()
-  groups.unshift(next)
-  savePoemGroups(groups)
-  return next
+export async function renamePoemGroup(groupId: string, name: string): Promise<boolean> {
+  return withDesktopBridge(
+    bridge => bridge.renamePoemGroup(groupId, name),
+    () => renamePoemGroupLocal(groupId, name)
+  )
 }
 
-export function renamePoemGroup(groupId: string, name: string): boolean {
-  const nextName = name.trim()
-  if (!nextName) return false
-  const groups = getPoemGroups()
-  const found = groups.find(g => g.id === groupId)
-  if (!found) return false
-  found.name = nextName
-  found.updatedAt = new Date().toISOString()
-  savePoemGroups(groups)
-  return true
+export async function deletePoemGroup(groupId: string): Promise<void> {
+  await withDesktopBridge(
+    bridge => bridge.deletePoemGroup(groupId).then(() => undefined),
+    () => {
+      deletePoemGroupLocal(groupId)
+      return undefined
+    }
+  )
 }
 
-export function deletePoemGroup(groupId: string): void {
-  const groups = getPoemGroups().filter(g => g.id !== groupId)
-  savePoemGroups(groups)
+export async function addPoemToGroup(groupId: string, poemId: string): Promise<boolean> {
+  return withDesktopBridge(
+    bridge => bridge.addPoemToGroup(groupId, poemId),
+    () => addPoemToGroupLocal(groupId, poemId)
+  )
 }
 
-export function addPoemToGroup(groupId: string, poemId: string): boolean {
-  const groups = getPoemGroups()
-  const found = groups.find(g => g.id === groupId)
-  if (!found) return false
-  if (!found.poemIds.includes(poemId)) {
-    found.poemIds.push(poemId)
-    found.updatedAt = new Date().toISOString()
-    savePoemGroups(groups)
-  }
-  return true
+export async function removePoemFromGroup(groupId: string, poemId: string): Promise<boolean> {
+  return withDesktopBridge(
+    bridge => bridge.removePoemFromGroup(groupId, poemId),
+    () => removePoemFromGroupLocal(groupId, poemId)
+  )
 }
 
-export function removePoemFromGroup(groupId: string, poemId: string): boolean {
-  const groups = getPoemGroups()
-  const found = groups.find(g => g.id === groupId)
-  if (!found) return false
-  const before = found.poemIds.length
-  found.poemIds = found.poemIds.filter(id => id !== poemId)
-  if (found.poemIds.length !== before) {
-    found.updatedAt = new Date().toISOString()
-    savePoemGroups(groups)
-  }
-  return true
+export async function togglePoemInGroup(groupId: string, poemId: string): Promise<boolean> {
+  return withDesktopBridge(
+    bridge => bridge.togglePoemInGroup(groupId, poemId),
+    () => togglePoemInGroupLocal(groupId, poemId)
+  )
 }
 
-export function togglePoemInGroup(groupId: string, poemId: string): boolean {
-  const groups = getPoemGroups()
-  const found = groups.find(g => g.id === groupId)
-  if (!found) return false
-  const exists = found.poemIds.includes(poemId)
-  found.poemIds = exists
-    ? found.poemIds.filter(id => id !== poemId)
-    : [...found.poemIds, poemId]
-  found.updatedAt = new Date().toISOString()
-  savePoemGroups(groups)
-  return !exists
+export async function getPoemGroupById(groupId: string): Promise<PoemGroup | null> {
+  return withDesktopBridge(
+    bridge => bridge.getPoemGroupById(groupId),
+    () => getPoemGroupByIdLocal(groupId)
+  )
 }
 
-export function getPoemGroupById(groupId: string): PoemGroup | null {
-  const groups = getPoemGroups()
-  return groups.find(g => g.id === groupId) || null
-}
-
-export function getGroupsForPoem(poemId: string): PoemGroup[] {
-  return getPoemGroups().filter(g => g.poemIds.includes(poemId))
+export async function getGroupsForPoem(poemId: string): Promise<PoemGroup[]> {
+  return withDesktopBridge(
+    bridge => bridge.getGroupsForPoem(poemId),
+    () => getGroupsForPoemLocal(poemId)
+  )
 }

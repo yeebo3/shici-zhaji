@@ -21,14 +21,14 @@ export default function GroupPicker({
     return new Set(groups.filter(g => g.poemIds.includes(poemId)).map(g => g.id))
   }, [groups, poemId])
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const name = newName.trim()
     if (!name) return
     if (groups.some(g => g.name === name)) {
       setError('分组名已存在')
       return
     }
-    createGroup(name)
+    await createGroup(name)
     setNewName('')
     setError(null)
   }
@@ -51,7 +51,7 @@ export default function GroupPicker({
           placeholder="新建分组名"
           className="flex-1 px-3 py-2 rounded-md bg-cream dark:bg-night-card border border-stone/20 dark:border-stone/10 text-sm"
         />
-        <button onClick={handleCreate} className="btn-ghost px-3 inline-flex items-center gap-1">
+        <button onClick={() => { void handleCreate() }} className="btn-ghost px-3 inline-flex items-center gap-1">
           <Plus size={13} />
           新建
         </button>
@@ -67,7 +67,7 @@ export default function GroupPicker({
             return (
               <button
                 key={group.id}
-                onClick={() => togglePoem(group.id, poemId)}
+                onClick={() => { void togglePoem(group.id, poemId) }}
                 className={`w-full px-3 py-2 rounded-md text-left flex items-center justify-between transition-colors ${
                   selected
                     ? 'bg-ink/10 dark:bg-white/10 text-ink dark:text-night-text'

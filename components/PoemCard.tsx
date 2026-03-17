@@ -43,7 +43,10 @@ export default function PoemCard({
   const pathname = usePathname()
   const shownMatchedLines = (matchedLines || []).slice(0, 2)
   const currentPath = pathname || '/'
-  const poemHref = `/poem/${poem.id}?from=${encodeURIComponent(currentPath || '/')}`
+  const poemHref =
+    `/poem?id=${encodeURIComponent(poem.id)}` +
+    `&s=${poem.shard}` +
+    `&from=${encodeURIComponent(currentPath || '/')}`
 
   return (
     <Link href={poemHref} className="block">
