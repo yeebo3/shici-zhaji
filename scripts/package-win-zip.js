@@ -46,8 +46,14 @@ function resolveRceditX64() {
 }
 
 function main() {
+  const configArg = String(process.env.SHICI_BUILDER_CONFIG || 'electron-builder.static.json').trim()
+  const configPath = path.isAbsolute(configArg) ? configArg : path.join(ROOT, configArg)
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`builder config not found: ${configPath}`)
+  }
+
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
-  const builderConfig = JSON.parse(fs.readFileSync(path.join(ROOT, 'electron-builder.static.json'), 'utf8'))
+  const builderConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'))
   const productName = builderConfig.productName || pkg.name
   const version = pkg.version
   const rawSuffix = String(process.env.SHICI_ZIP_SUFFIX || '').trim()
@@ -62,7 +68,7 @@ function main() {
     throw new Error(`icon not found: ${ICON_PATH}`)
   }
 
-  run('npx', ['electron-builder', '--config', 'electron-builder.static.json', '--win', 'dir', '--x64'])
+  run('npx', ['electron-builder', '--config', configPath, '--win', 'dir', '--x64'])
 
   if (!fs.existsSync(exePath)) {
     throw new Error(`exe not found after dir build: ${exePath}`)

@@ -88,6 +88,7 @@ npm run desktop:run                # 静态桌面模式本地运行（推荐）
 npm run package:win                # 静态桌面模式：Windows 安装版（NSIS）
 npm run package:win:zip            # 静态桌面模式：Windows ZIP 解压即用版（推荐分发）
 npm run package:win:zip:mini       # mini 数据集 ZIP（文件名带 -mini 后缀，不覆盖 full 包）
+npm run package:win:zip:mini:lean  # mini + lean 打包（最小 app 目录，文件名带 -mini-lean 后缀）
 npm run package:win:dir            # 静态桌面模式：输出 win-unpacked 目录
 npm run package:win:portable       # 静态桌面模式：Windows 便携版
 
@@ -105,6 +106,7 @@ npm run package:win:legacy:nsis    # 旧链路安装版
   - `诗词札记-<version>.exe`（NSIS 安装包或便携包，取决于命令）
   - `诗词札记-<version>.zip`（ZIP 解压即用版，若启用 `package:win:zip`）
   - `诗词札记-<version>-mini.zip`（mini 数据集 ZIP，若启用 `package:win:zip:mini`）
+  - `诗词札记-<version>-mini-lean.zip`（mini + lean ZIP，若启用 `package:win:zip:mini:lean`）
   - `win-unpacked/`（解包目录，可用于调试）
 
 启动速度说明：
