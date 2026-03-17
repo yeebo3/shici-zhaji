@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { PoemGroup, PoemNotebookId, StudyRecord } from '@/lib/types'
+import { PoemGroup, ReciteScopeId, StudyRecord } from '@/lib/types'
 import * as storage from '@/lib/storage'
 
 export function useTheme() {
@@ -96,7 +96,7 @@ export function useRecentlyViewed() {
 }
 
 export function useReciteNotebook() {
-  const [notebook, setNotebookState] = useState<PoemNotebookId>('all')
+  const [notebook, setNotebookState] = useState<ReciteScopeId>('annotated')
 
   useEffect(() => {
     let cancelled = false
@@ -108,7 +108,7 @@ export function useReciteNotebook() {
     return () => { cancelled = true }
   }, [])
 
-  const setNotebook = useCallback(async (next: PoemNotebookId) => {
+  const setNotebook = useCallback(async (next: ReciteScopeId) => {
     setNotebookState(next)
     await storage.setReciteNotebook(next)
   }, [])

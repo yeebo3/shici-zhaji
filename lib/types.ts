@@ -58,6 +58,8 @@ export type ViewMode = 'original' | 'annotated' | 'appreciation' | 'all'
 
 export type ReciteMode = 'read' | 'mask' | 'line' | 'test'
 
+export type ReciteScopeId = 'annotated' | `group:${string}`
+
 export type PoemNotebookId = 'all' | 'annotated' | 'plain'
 
 export type PoemNotebook = {

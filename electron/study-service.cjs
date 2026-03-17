@@ -1,8 +1,8 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
-const NOTEBOOK_IDS = ['all', 'annotated', 'plain']
-const NOTEBOOK_SET = new Set(NOTEBOOK_IDS)
+const DEFAULT_RECITE_SCOPE = 'annotated'
+const GROUP_SCOPE_PREFIX = 'group:'
 
 function nowIso() {
   return new Date().toISOString()
@@ -44,9 +44,15 @@ function normalizeReviewCount(input) {
   return num
 }
 
-function normalizeNotebook(input) {
-  if (typeof input !== 'string') return 'all'
-  return NOTEBOOK_SET.has(input) ? input : 'all'
+function normalizeReciteScope(input) {
+  if (typeof input !== 'string') return DEFAULT_RECITE_SCOPE
+  const value = input.trim()
+  if (value === 'annotated') return 'annotated'
+  if (value === 'all' || value === 'plain') return 'annotated'
+  if (!value.startsWith(GROUP_SCOPE_PREFIX)) return DEFAULT_RECITE_SCOPE
+  const groupId = normalizeGroupId(value.slice(GROUP_SCOPE_PREFIX.length))
+  if (!groupId) return DEFAULT_RECITE_SCOPE
+  return `${GROUP_SCOPE_PREFIX}${groupId}`
 }
 
 function toBoolean(input) {
@@ -132,7 +138,7 @@ function createJsonStore(jsonPath) {
   const state = {
     studyRecords: {},
     groups: [],
-    reciteNotebook: 'all',
+    reciteNotebook: DEFAULT_RECITE_SCOPE,
   }
 
   if (fs.existsSync(jsonPath)) {
@@ -140,7 +146,7 @@ function createJsonStore(jsonPath) {
       const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf8'))
       state.studyRecords = normalizeStudyRecordMap(raw.studyRecords)
       state.groups = normalizeGroups(raw.groups)
-      state.reciteNotebook = normalizeNotebook(raw.reciteNotebook)
+      state.reciteNotebook = normalizeReciteScope(raw.reciteNotebook)
     } catch {
       // ignore broken fallback file
     }
@@ -239,11 +245,11 @@ function createJsonStore(jsonPath) {
   }
 
   function getReciteNotebook() {
-    return normalizeNotebook(state.reciteNotebook)
+    return normalizeReciteScope(state.reciteNotebook)
   }
 
   function setReciteNotebook(notebook) {
-    state.reciteNotebook = normalizeNotebook(notebook)
+    state.reciteNotebook = normalizeReciteScope(notebook)
     persist()
     return state.reciteNotebook
   }
@@ -348,9 +354,13 @@ function createJsonStore(jsonPath) {
   function bootstrap(payload) {
     const records = normalizeStudyRecordMap(payload && payload.studyRecords)
     const groups = normalizeGroups(payload && payload.groups)
-    const reciteNotebook = normalizeNotebook(payload && payload.reciteNotebook)
+    const reciteNotebook = normalizeReciteScope(payload && payload.reciteNotebook)
 
-    if (Object.keys(state.studyRecords).length > 0 || state.groups.length > 0 || state.reciteNotebook !== 'all') {
+    if (
+      Object.keys(state.studyRecords).length > 0
+      || state.groups.length > 0
+      || normalizeReciteScope(state.reciteNotebook) !== DEFAULT_RECITE_SCOPE
+    ) {
       return { migrated: false, reason: 'existing-data' }
     }
 
@@ -627,11 +637,11 @@ function createSqliteStore(dbPath) {
 
   function getReciteNotebook() {
     const row = db.prepare(`SELECT value FROM kv WHERE key = 'recite_notebook'`).get()
-    return normalizeNotebook(row && row.value)
+    return normalizeReciteScope(row && row.value)
   }
 
   function setReciteNotebook(notebook) {
-    const normalized = normalizeNotebook(notebook)
+    const normalized = normalizeReciteScope(notebook)
     db.prepare(`
       INSERT INTO kv (key, value)
       VALUES ('recite_notebook', ?)
@@ -811,7 +821,7 @@ function createSqliteStore(dbPath) {
   function bootstrap(payload) {
     const records = normalizeStudyRecordMap(payload && payload.studyRecords)
     const groups = normalizeGroups(payload && payload.groups)
-    const reciteNotebook = normalizeNotebook(payload && payload.reciteNotebook)
+    const reciteNotebook = normalizeReciteScope(payload && payload.reciteNotebook)
     const existingRecords = Number(db.prepare(`SELECT COUNT(*) AS total FROM study_records`).get().total || 0)
     const existingGroups = Number(db.prepare(`SELECT COUNT(*) AS total FROM groups`).get().total || 0)
     const existingNotebook = db.prepare(`SELECT value FROM kv WHERE key = 'recite_notebook'`).get()

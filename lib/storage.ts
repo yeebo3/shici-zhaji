@@ -1,4 +1,4 @@
-import { PoemGroup, PoemNotebookId, StudyRecord } from './types'
+import { PoemGroup, ReciteScopeId, StudyRecord } from './types'
 
 const STUDY_KEY = 'shici-study-records'
 const THEME_KEY = 'shici-theme'
@@ -7,7 +7,8 @@ const GROUPS_KEY = 'shici-poem-groups'
 const RECITE_NOTEBOOK_KEY = 'shici-recite-notebook'
 const DESKTOP_MIGRATION_FLAG_KEY = 'shici-desktop-study-migrated-v1'
 
-const NOTEBOOK_IDS: PoemNotebookId[] = ['all', 'annotated', 'plain']
+const DEFAULT_RECITE_SCOPE: ReciteScopeId = 'annotated'
+const GROUP_SCOPE_PREFIX = 'group:'
 
 type StudyStats = {
   totalViewed: number
@@ -20,7 +21,7 @@ type DesktopStudyBridge = {
   bootstrap: (payload: {
     studyRecords: Record<string, StudyRecord>
     groups: PoemGroup[]
-    reciteNotebook: PoemNotebookId
+    reciteNotebook: ReciteScopeId
   }) => Promise<unknown>
   getStudyRecords: () => Promise<Record<string, StudyRecord>>
   getStudyRecord: (poemId: string) => Promise<StudyRecord | null>
@@ -32,8 +33,8 @@ type DesktopStudyBridge = {
   getMemorized: () => Promise<string[]>
   getRecentlyViewed: (limit?: number) => Promise<StudyRecord[]>
   getStats: () => Promise<StudyStats>
-  getReciteNotebook: () => Promise<PoemNotebookId | string>
-  setReciteNotebook: (notebook: PoemNotebookId) => Promise<PoemNotebookId | string>
+  getReciteNotebook: () => Promise<ReciteScopeId | string>
+  setReciteNotebook: (notebook: ReciteScopeId) => Promise<ReciteScopeId | string>
   getPoemGroups: () => Promise<PoemGroup[]>
   createPoemGroup: (name: string) => Promise<PoemGroup>
   renamePoemGroup: (groupId: string, name: string) => Promise<boolean>
@@ -59,6 +60,17 @@ function safeReadJSON<T>(key: string, fallback: T): T {
 function safeWriteJSON(key: string, value: unknown): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(key, JSON.stringify(value))
+}
+
+function normalizeReciteScope(input: unknown): ReciteScopeId {
+  if (typeof input !== 'string') return DEFAULT_RECITE_SCOPE
+  const value = input.trim()
+  if (value === 'annotated') return 'annotated'
+  if (value === 'all' || value === 'plain') return 'annotated'
+  if (!value.startsWith(GROUP_SCOPE_PREFIX)) return DEFAULT_RECITE_SCOPE
+  const groupId = value.slice(GROUP_SCOPE_PREFIX.length).trim()
+  if (!groupId) return DEFAULT_RECITE_SCOPE
+  return `${GROUP_SCOPE_PREFIX}${groupId}`
 }
 
 function normalizeStudyRecord(input: unknown): StudyRecord | null {
@@ -193,14 +205,13 @@ function getStatsLocal(): StudyStats {
   }
 }
 
-function getReciteNotebookLocal(): PoemNotebookId {
-  const raw = safeReadJSON<PoemNotebookId | string>(RECITE_NOTEBOOK_KEY, 'all')
-  if (typeof raw !== 'string') return 'all'
-  return NOTEBOOK_IDS.includes(raw as PoemNotebookId) ? (raw as PoemNotebookId) : 'all'
+function getReciteNotebookLocal(): ReciteScopeId {
+  const raw = safeReadJSON<ReciteScopeId | string>(RECITE_NOTEBOOK_KEY, DEFAULT_RECITE_SCOPE)
+  return normalizeReciteScope(raw)
 }
 
-function setReciteNotebookLocal(notebook: PoemNotebookId): void {
-  safeWriteJSON(RECITE_NOTEBOOK_KEY, notebook)
+function setReciteNotebookLocal(notebook: ReciteScopeId): void {
+  safeWriteJSON(RECITE_NOTEBOOK_KEY, normalizeReciteScope(notebook))
 }
 
 function normalizeGroupLocal(group: unknown): PoemGroup | null {
@@ -489,20 +500,20 @@ export function setFontSize(size: string): void {
   localStorage.setItem(FONT_KEY, size)
 }
 
-export async function getReciteNotebook(): Promise<PoemNotebookId> {
+export async function getReciteNotebook(): Promise<ReciteScopeId> {
   const value = await withDesktopBridge(
     bridge => bridge.getReciteNotebook(),
     () => getReciteNotebookLocal()
   )
-  if (typeof value !== 'string') return 'all'
-  return NOTEBOOK_IDS.includes(value as PoemNotebookId) ? (value as PoemNotebookId) : 'all'
+  return normalizeReciteScope(value)
 }
 
-export async function setReciteNotebook(notebook: PoemNotebookId): Promise<void> {
+export async function setReciteNotebook(notebook: ReciteScopeId): Promise<void> {
+  const next = normalizeReciteScope(notebook)
   await withDesktopBridge(
-    bridge => bridge.setReciteNotebook(notebook).then(() => undefined),
+    bridge => bridge.setReciteNotebook(next).then(() => undefined),
     () => {
-      setReciteNotebookLocal(notebook)
+      setReciteNotebookLocal(next)
       return undefined
     }
   )
