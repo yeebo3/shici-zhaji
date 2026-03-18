@@ -45,17 +45,7 @@ export default function GroupManager() {
   const [notebookHasMore, setNotebookHasMore] = useState(false)
   const [notebookTotal, setNotebookTotal] = useState(0)
 
-  const visibleNotebooks = useMemo(
-    () => notebooks.length > 0
-      ? notebooks
-      : [{
-        id: DEFAULT_RECITE_NOTEBOOK_ID,
-        name: '常用诗词本',
-        description: '优先含注释的诗词（annotation 非空）',
-        count: notebookTotal,
-      }],
-    [notebooks, notebookTotal]
-  )
+  const visibleNotebooks = notebooks
   const fallbackNotebookId = useMemo(
     () => visibleNotebooks.find(item => item.id === DEFAULT_RECITE_NOTEBOOK_ID)?.id
       || visibleNotebooks[0]?.id

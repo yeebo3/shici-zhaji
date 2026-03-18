@@ -104,6 +104,8 @@ npm run desktop:run
 - `tagsAny`: 标签任一命中
 - `sources`: 数据来源白名单
 
+删除某个条目即可下线该诗词本（例如删除 `plain` 后，前端不再显示“纯原文诗词本”）。
+
 常用命令：
 
 ```bash

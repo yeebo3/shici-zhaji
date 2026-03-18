@@ -234,13 +234,11 @@ function RecitePageContent() {
   )
 
   const scopeOptions = useMemo<ReciteScopeOption[]>(() => ([
-    ...(notebooks.length > 0
-      ? notebooks.map(item => ({
-        id: item.id as ReciteScopeId,
-        name: item.name,
-        count: item.count,
-      }))
-      : [{ id: DEFAULT_RECITE_NOTEBOOK_ID as ReciteScopeId, name: '常用诗词本', count: 0 }]),
+    ...notebooks.map(item => ({
+      id: item.id as ReciteScopeId,
+      name: item.name,
+      count: item.count,
+    })),
     ...groups.map(group => ({
       id: `${GROUP_SCOPE_PREFIX}${group.id}` as ReciteScopeId,
       name: group.name,

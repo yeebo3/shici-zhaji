@@ -7,26 +7,6 @@ const DEFAULT_FULLTEXT_LIMIT = 60
 const DEFAULT_NOTEBOOK_ID = 'all'
 const NOTEBOOK_CONFIG_PATH = path.join(__dirname, '..', 'lib', 'poem-notebooks.json')
 
-const BUILTIN_NOTEBOOKS = [
-  {
-    id: 'all',
-    name: '全部诗词',
-    description: '全量诗词随机背诵',
-  },
-  {
-    id: 'annotated',
-    name: '常用诗词本',
-    description: '优先含注释的诗词（annotation 非空）',
-    rule: { requireAnnotation: true },
-  },
-  {
-    id: 'plain',
-    name: '纯原文诗词本',
-    description: '仅保留无注释诗词（annotation 为空）',
-    rule: { requireAnnotation: false },
-  },
-]
-
 function normalizeStringArray(input) {
   if (!Array.isArray(input)) return undefined
   const values = [...new Set(input.map(item => String(item || '').trim()).filter(Boolean))]
@@ -88,9 +68,6 @@ function loadNotebookDefinitions() {
   }
 
   const byId = new Map()
-  for (const builtin of BUILTIN_NOTEBOOKS) {
-    byId.set(builtin.id, builtin)
-  }
   for (const item of rawList) {
     const normalized = normalizeNotebookDefinition(item)
     if (!normalized || byId.has(normalized.id)) continue
@@ -101,11 +78,15 @@ function loadNotebookDefinitions() {
 
 const NOTEBOOK_DEFINITIONS = loadNotebookDefinitions()
 const NOTEBOOK_DEFINITION_MAP = new Map(NOTEBOOK_DEFINITIONS.map(item => [item.id, item]))
+const FIRST_NOTEBOOK_ID = NOTEBOOK_DEFINITIONS[0]
+  ? NOTEBOOK_DEFINITIONS[0].id
+  : DEFAULT_NOTEBOOK_ID
 
 function normalizeNotebookId(input) {
   const value = typeof input === 'string' ? input.trim() : ''
   if (value && NOTEBOOK_DEFINITION_MAP.has(value)) return value
-  return DEFAULT_NOTEBOOK_ID
+  if (NOTEBOOK_DEFINITION_MAP.has(DEFAULT_NOTEBOOK_ID)) return DEFAULT_NOTEBOOK_ID
+  return FIRST_NOTEBOOK_ID
 }
 
 function includesValue(list, value) {

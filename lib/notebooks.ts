@@ -29,26 +29,6 @@ const GROUP_SCOPE_PREFIX = 'group:'
 export const DEFAULT_POEM_NOTEBOOK_ID: PoemNotebookId = 'all'
 export const DEFAULT_RECITE_NOTEBOOK_ID: PoemNotebookId = 'annotated'
 
-const BUILTIN_NOTEBOOKS: PoemNotebookDefinition[] = [
-  {
-    id: 'all',
-    name: '全部诗词',
-    description: '全量诗词随机背诵',
-  },
-  {
-    id: 'annotated',
-    name: '常用诗词本',
-    description: '优先含注释的诗词（annotation 非空）',
-    rule: { requireAnnotation: true },
-  },
-  {
-    id: 'plain',
-    name: '纯原文诗词本',
-    description: '仅保留无注释诗词（annotation 为空）',
-    rule: { requireAnnotation: false },
-  },
-]
-
 type RawNotebookDefinition = {
   id?: unknown
   name?: unknown
@@ -113,39 +93,27 @@ function normalizeNotebook(input: unknown): PoemNotebookDefinition | null {
   }
 }
 
-function readCustomNotebooks(): PoemNotebookDefinition[] {
+function readConfiguredNotebooks(): PoemNotebookDefinition[] {
   const rawList = Array.isArray(rawNotebookConfig)
     ? rawNotebookConfig
     : Array.isArray((rawNotebookConfig as { notebooks?: unknown[] } | undefined)?.notebooks)
     ? (rawNotebookConfig as { notebooks: unknown[] }).notebooks
     : []
 
-  const out: PoemNotebookDefinition[] = []
+  const byId = new Map<string, PoemNotebookDefinition>()
   for (const item of rawList) {
     const normalized = normalizeNotebook(item)
-    if (normalized) out.push(normalized)
+    if (!normalized || byId.has(normalized.id)) continue
+    byId.set(normalized.id, normalized)
   }
-  return out
-}
-
-function buildNotebookDefinitions(): PoemNotebookDefinition[] {
-  const byId = new Map<string, PoemNotebookDefinition>()
-
-  for (const builtin of BUILTIN_NOTEBOOKS) {
-    byId.set(builtin.id, builtin)
-  }
-
-  // 扩展点：只需在 lib/poem-notebooks.json 追加条目，无需修改业务逻辑。
-  for (const custom of readCustomNotebooks()) {
-    if (byId.has(custom.id)) continue
-    byId.set(custom.id, custom)
-  }
-
   return Array.from(byId.values())
 }
 
-const NOTEBOOK_DEFINITIONS = buildNotebookDefinitions()
+// 单一扩展点：诗词本列表完全由 lib/poem-notebooks.json 驱动。
+const NOTEBOOK_DEFINITIONS = readConfiguredNotebooks()
 const NOTEBOOK_MAP = new Map(NOTEBOOK_DEFINITIONS.map(item => [item.id, item]))
+const FIRST_NOTEBOOK_ID: PoemNotebookId =
+  NOTEBOOK_DEFINITIONS[0]?.id || DEFAULT_POEM_NOTEBOOK_ID
 
 export function getPoemNotebookDefinitions(): PoemNotebookDefinition[] {
   return NOTEBOOK_DEFINITIONS
@@ -161,7 +129,9 @@ export function normalizePoemNotebookId(
 ): PoemNotebookId {
   const value = typeof input === 'string' ? input.trim() : ''
   if (value && NOTEBOOK_MAP.has(value)) return value
-  return fallback
+  if (NOTEBOOK_MAP.has(fallback)) return fallback
+  if (NOTEBOOK_MAP.has(DEFAULT_POEM_NOTEBOOK_ID)) return DEFAULT_POEM_NOTEBOOK_ID
+  return FIRST_NOTEBOOK_ID
 }
 
 function includes(list: string[] | undefined, value: string | undefined): boolean {
