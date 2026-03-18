@@ -162,7 +162,7 @@ export default function GroupManager() {
             <BookMarked size={15} className="text-ash" />
             <p className="text-sm font-medium">常用诗词本</p>
           </div>
-          <p className="text-xs text-ash mt-1">{annotatedCount} 首（按 annotation 自动分组）</p>
+          <p className="text-xs text-ash mt-1">{annotatedCount} 首</p>
         </button>
 
         {groups.map(group => (
