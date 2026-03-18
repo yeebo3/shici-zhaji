@@ -65,12 +65,13 @@ function safeWriteJSON(key: string, value: unknown): void {
 function normalizeReciteScope(input: unknown): ReciteScopeId {
   if (typeof input !== 'string') return DEFAULT_RECITE_SCOPE
   const value = input.trim()
-  if (value === 'annotated') return 'annotated'
-  if (value === 'all' || value === 'plain') return 'annotated'
-  if (!value.startsWith(GROUP_SCOPE_PREFIX)) return DEFAULT_RECITE_SCOPE
-  const groupId = value.slice(GROUP_SCOPE_PREFIX.length).trim()
-  if (!groupId) return DEFAULT_RECITE_SCOPE
-  return `${GROUP_SCOPE_PREFIX}${groupId}`
+  if (!value) return DEFAULT_RECITE_SCOPE
+  if (value.startsWith(GROUP_SCOPE_PREFIX)) {
+    const groupId = value.slice(GROUP_SCOPE_PREFIX.length).trim()
+    if (!groupId) return DEFAULT_RECITE_SCOPE
+    return `${GROUP_SCOPE_PREFIX}${groupId}`
+  }
+  return value as ReciteScopeId
 }
 
 function normalizeStudyRecord(input: unknown): StudyRecord | null {

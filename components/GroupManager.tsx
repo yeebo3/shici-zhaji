@@ -3,53 +3,106 @@
 import { useEffect, useMemo, useState } from 'react'
 import { usePoemGroups } from '@/hooks/useStudy'
 import { getPoemIndexByIds, getPoemNotebooks, queryPoems } from '@/lib/poems'
-import { PoemIndex } from '@/lib/types'
+import { PoemIndex, PoemNotebook } from '@/lib/types'
+import { DEFAULT_RECITE_NOTEBOOK_ID } from '@/lib/notebooks'
 import PoemCard from '@/components/PoemCard'
 import { Pencil, Trash2, Check, Plus, BookMarked } from 'lucide-react'
 
-const BUILTIN_ANNOTATED_ID = '__builtin_annotated__'
+const NOTEBOOK_SCOPE_PREFIX = 'notebook:'
+const GROUP_SCOPE_PREFIX = 'group:'
 const PAGE_SIZE = 120
+
+function toNotebookScopeId(notebookId: string): string {
+  return `${NOTEBOOK_SCOPE_PREFIX}${notebookId}`
+}
+
+function toGroupScopeId(groupId: string): string {
+  return `${GROUP_SCOPE_PREFIX}${groupId}`
+}
+
+function getNotebookIdFromScope(scopeId: string): string | null {
+  if (!scopeId.startsWith(NOTEBOOK_SCOPE_PREFIX)) return null
+  const id = scopeId.slice(NOTEBOOK_SCOPE_PREFIX.length).trim()
+  return id || null
+}
+
+function getGroupIdFromScope(scopeId: string): string | null {
+  if (!scopeId.startsWith(GROUP_SCOPE_PREFIX)) return null
+  const id = scopeId.slice(GROUP_SCOPE_PREFIX.length).trim()
+  return id || null
+}
 
 export default function GroupManager() {
   const { groups, createGroup, renameGroup, deleteGroup, removePoem } = usePoemGroups()
-  const [activeGroupId, setActiveGroupId] = useState<string>(BUILTIN_ANNOTATED_ID)
+  const [notebooks, setNotebooks] = useState<PoemNotebook[]>([])
+  const [activeScopeId, setActiveScopeId] = useState(() => toNotebookScopeId(DEFAULT_RECITE_NOTEBOOK_ID))
   const [poems, setPoems] = useState<PoemIndex[]>([])
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
   const [editingName, setEditingName] = useState('')
   const [isEditing, setIsEditing] = useState(false)
-  const [annotatedCount, setAnnotatedCount] = useState(0)
-  const [annotatedHasMore, setAnnotatedHasMore] = useState(false)
+  const [notebookHasMore, setNotebookHasMore] = useState(false)
+  const [notebookTotal, setNotebookTotal] = useState(0)
 
+  const visibleNotebooks = useMemo(
+    () => notebooks.length > 0
+      ? notebooks
+      : [{
+        id: DEFAULT_RECITE_NOTEBOOK_ID,
+        name: '常用诗词本',
+        description: '优先含注释的诗词（annotation 非空）',
+        count: notebookTotal,
+      }],
+    [notebooks, notebookTotal]
+  )
+  const fallbackNotebookId = useMemo(
+    () => visibleNotebooks.find(item => item.id === DEFAULT_RECITE_NOTEBOOK_ID)?.id
+      || visibleNotebooks[0]?.id
+      || DEFAULT_RECITE_NOTEBOOK_ID,
+    [visibleNotebooks]
+  )
+  const activeNotebookId = useMemo(() => getNotebookIdFromScope(activeScopeId), [activeScopeId])
+  const activeGroupId = useMemo(() => getGroupIdFromScope(activeScopeId), [activeScopeId])
+  const activeNotebook = useMemo(
+    () => visibleNotebooks.find(item => item.id === activeNotebookId) || null,
+    [visibleNotebooks, activeNotebookId]
+  )
   const activeCustomGroup = useMemo(
     () => groups.find(g => g.id === activeGroupId) || null,
     [groups, activeGroupId]
   )
-  const isBuiltinAnnotated = activeGroupId === BUILTIN_ANNOTATED_ID
+  const isNotebookScope = activeNotebookId !== null
 
   useEffect(() => {
     let cancelled = false
-    async function loadNotebookMeta() {
+
+    async function loadNotebooks() {
       try {
         const list = await getPoemNotebooks()
-        const annotated = list.find(item => item.id === 'annotated')
-        if (!cancelled && annotated) setAnnotatedCount(annotated.count)
+        if (!cancelled) setNotebooks(list)
       } catch {
-        // ignore
+        if (!cancelled) setNotebooks([])
       }
     }
-    loadNotebookMeta()
+
+    void loadNotebooks()
     return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
-    if (isBuiltinAnnotated) return
-    if (!activeCustomGroup) {
-      setActiveGroupId(BUILTIN_ANNOTATED_ID)
-      setIsEditing(false)
-    }
-  }, [activeCustomGroup, isBuiltinAnnotated])
+    if (!activeNotebookId) return
+    if (visibleNotebooks.some(item => item.id === activeNotebookId)) return
+    setActiveScopeId(toNotebookScopeId(fallbackNotebookId))
+    setIsEditing(false)
+  }, [activeNotebookId, visibleNotebooks, fallbackNotebookId])
+
+  useEffect(() => {
+    if (!activeGroupId) return
+    if (activeCustomGroup) return
+    setActiveScopeId(toNotebookScopeId(fallbackNotebookId))
+    setIsEditing(false)
+  }, [activeGroupId, activeCustomGroup, fallbackNotebookId])
 
   useEffect(() => {
     let cancelled = false
@@ -57,47 +110,55 @@ export default function GroupManager() {
     async function load() {
       setLoading(true)
       try {
-        if (isBuiltinAnnotated) {
+        if (isNotebookScope && activeNotebookId) {
           const res = await queryPoems({
-            notebook: 'annotated',
+            notebook: activeNotebookId,
             offset: 0,
             limit: PAGE_SIZE,
           })
           if (cancelled) return
           setPoems(res.items)
-          setAnnotatedHasMore(res.hasMore)
-          setAnnotatedCount(res.total)
+          setNotebookHasMore(res.hasMore)
+          setNotebookTotal(res.total)
           return
         }
 
         if (!activeCustomGroup) {
-          if (!cancelled) setPoems([])
+          if (!cancelled) {
+            setPoems([])
+            setNotebookHasMore(false)
+            setNotebookTotal(0)
+          }
           return
         }
 
         const items = await getPoemIndexByIds(activeCustomGroup.poemIds)
-        if (!cancelled) setPoems(items)
+        if (!cancelled) {
+          setPoems(items)
+          setNotebookHasMore(false)
+          setNotebookTotal(items.length)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
 
-    load()
+    void load()
     return () => { cancelled = true }
-  }, [isBuiltinAnnotated, activeCustomGroup])
+  }, [isNotebookScope, activeNotebookId, activeCustomGroup])
 
-  const handleLoadMoreAnnotated = async () => {
-    if (loadingMore || !annotatedHasMore) return
+  const handleLoadMoreNotebook = async () => {
+    if (!isNotebookScope || !activeNotebookId || loadingMore || !notebookHasMore) return
     setLoadingMore(true)
     try {
       const res = await queryPoems({
-        notebook: 'annotated',
+        notebook: activeNotebookId,
         offset: poems.length,
         limit: PAGE_SIZE,
       })
       setPoems(prev => [...prev, ...res.items])
-      setAnnotatedHasMore(res.hasMore)
-      setAnnotatedCount(res.total)
+      setNotebookHasMore(res.hasMore)
+      setNotebookTotal(res.total)
     } finally {
       setLoadingMore(false)
     }
@@ -108,7 +169,7 @@ export default function GroupManager() {
     if (!name) return
     const created = await createGroup(name)
     setNewGroupName('')
-    setActiveGroupId(created.id)
+    setActiveScopeId(toGroupScopeId(created.id))
     setIsEditing(false)
   }
 
@@ -124,7 +185,7 @@ export default function GroupManager() {
     if (!activeCustomGroup) return
     if (!window.confirm(`确定删除分组「${activeCustomGroup.name}」吗？`)) return
     await deleteGroup(activeCustomGroup.id)
-    setActiveGroupId(BUILTIN_ANNOTATED_ID)
+    setActiveScopeId(toNotebookScopeId(fallbackNotebookId))
     setIsEditing(false)
   }
 
@@ -147,33 +208,36 @@ export default function GroupManager() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <button
-          onClick={() => {
-            setActiveGroupId(BUILTIN_ANNOTATED_ID)
-            setIsEditing(false)
-          }}
-          className={`card p-3 text-left transition-colors ${
-            isBuiltinAnnotated
-              ? 'border-stone/40 dark:border-stone/25'
-              : 'hover:border-stone/30 dark:hover:border-stone/20'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <BookMarked size={15} className="text-ash" />
-            <p className="text-sm font-medium">常用诗词本</p>
-          </div>
-          <p className="text-xs text-ash mt-1">{annotatedCount} 首</p>
-        </button>
+        {visibleNotebooks.map(notebook => (
+          <button
+            key={notebook.id}
+            onClick={() => {
+              setActiveScopeId(toNotebookScopeId(notebook.id))
+              setIsEditing(false)
+            }}
+            className={`card p-3 text-left transition-colors ${
+              activeScopeId === toNotebookScopeId(notebook.id)
+                ? 'border-stone/40 dark:border-stone/25'
+                : 'hover:border-stone/30 dark:hover:border-stone/20'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <BookMarked size={15} className="text-ash" />
+              <p className="text-sm font-medium">{notebook.name}</p>
+            </div>
+            <p className="text-xs text-ash mt-1">{notebook.count} 首</p>
+          </button>
+        ))}
 
         {groups.map(group => (
           <button
             key={group.id}
             onClick={() => {
-              setActiveGroupId(group.id)
+              setActiveScopeId(toGroupScopeId(group.id))
               setIsEditing(false)
             }}
             className={`card p-3 text-left transition-colors ${
-              activeGroupId === group.id
+              activeScopeId === toGroupScopeId(group.id)
                 ? 'border-stone/40 dark:border-stone/25'
                 : 'hover:border-stone/30 dark:hover:border-stone/20'
             }`}
@@ -184,11 +248,11 @@ export default function GroupManager() {
         ))}
       </div>
 
-      {isBuiltinAnnotated ? (
+      {isNotebookScope && activeNotebook ? (
         <div className="card p-4">
-          <p className="text-xs text-ash tracking-widest uppercase mb-2">分组说明</p>
+          <p className="text-xs text-ash tracking-widest uppercase mb-2">诗词本说明</p>
           <p className="text-sm text-ink/70 dark:text-night-text/70 leading-relaxed">
-            「常用诗词本」
+            {activeNotebook.description}
           </p>
         </div>
       ) : activeCustomGroup ? (
@@ -232,13 +296,15 @@ export default function GroupManager() {
         {loading && <p className="text-xs text-ash text-center py-2">加载分组诗词中...</p>}
         {!loading && poems.length === 0 && (
           <div className="text-center py-12 text-ash text-sm">
-            {isBuiltinAnnotated ? '常用诗词本暂时没有可显示内容' : '该分组还没有诗词'}
+            {isNotebookScope
+              ? `${activeNotebook?.name || '当前诗词本'} 暂时没有可显示内容`
+              : '该分组还没有诗词'}
           </div>
         )}
         {poems.map(poem => (
           <div key={poem.id} className="relative">
             <PoemCard poem={poem} />
-            {!isBuiltinAnnotated && activeCustomGroup && (
+            {!isNotebookScope && activeCustomGroup && (
               <button
                 onClick={() => { void removePoem(activeCustomGroup.id, poem.id) }}
                 className="absolute bottom-3 right-3 btn-ghost text-xs px-2 py-1 text-rose-500"
@@ -250,10 +316,10 @@ export default function GroupManager() {
         ))}
       </div>
 
-      {isBuiltinAnnotated && annotatedHasMore && (
+      {isNotebookScope && notebookHasMore && (
         <div className="text-center">
-          <button className="btn-ghost" disabled={loadingMore} onClick={handleLoadMoreAnnotated}>
-            {loadingMore ? '加载中...' : `加载更多 (${poems.length}/${annotatedCount})`}
+          <button className="btn-ghost" disabled={loadingMore} onClick={handleLoadMoreNotebook}>
+            {loadingMore ? '加载中...' : `加载更多 (${poems.length}/${notebookTotal})`}
           </button>
         </div>
       )}

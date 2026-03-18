@@ -80,6 +80,30 @@ npm run desktop:run
 - `full`：全量数据
 - `mini`：仅保留有注释（`annotation` 非空）的诗词
 
+### 扩展默认诗词本
+
+默认诗词本配置位于 `lib/poem-notebooks.json`。  
+新增诗词本只需追加一个条目（无需修改核心查询/背诵/分组逻辑），例如：
+
+```json
+{
+  "id": "tang-song",
+  "name": "唐宋诗词本",
+  "description": "仅保留唐宋诗词",
+  "rule": {
+    "dynasties": ["唐", "宋"]
+  }
+}
+```
+
+可选规则字段：
+
+- `requireAnnotation`: `true/false`
+- `dynasties`: 朝代白名单
+- `authors`: 作者白名单
+- `tagsAny`: 标签任一命中
+- `sources`: 数据来源白名单
+
 常用命令：
 
 ```bash

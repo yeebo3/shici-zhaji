@@ -11,6 +11,11 @@ import {
   PoemSearchHit,
   PoemShard,
 } from './types'
+import {
+  getPoemNotebookDefinitions,
+  matchesPoemNotebook,
+  normalizePoemNotebookId,
+} from './notebooks'
 
 const DATA_DIR = path.join(process.cwd(), 'public', 'data')
 const INDEX_PATH = path.join(DATA_DIR, 'index.json')
@@ -22,7 +27,7 @@ let indexCache: PoemIndex[] | null = null
 let manifestCache: Manifest | null = null
 let idToIndexCache: Map<string, PoemIndex> | null = null
 const shardCache = new Map<number, Poem[]>()
-let notebookIndexCache: Record<PoemNotebookId, PoemIndex[]> | null = null
+let notebookIndexCache: Map<PoemNotebookId, PoemIndex[]> | null = null
 
 function setShardCache(shard: number, poems: Poem[]) {
   if (shardCache.has(shard)) {
@@ -37,19 +42,53 @@ function setShardCache(shard: number, poems: Poem[]) {
   }
 }
 
-function normalizeNotebook(notebook?: string | null): PoemNotebookId {
-  if (notebook === 'annotated' || notebook === 'plain') return notebook
-  return 'all'
-}
-
 function hasAnnotation(poem: Pick<Poem, 'annotation'>): boolean {
   return Array.isArray(poem.annotation) && poem.annotation.length > 0
 }
 
-function inNotebook(poem: Pick<Poem, 'annotation'>, notebook: PoemNotebookId): boolean {
-  if (notebook === 'all') return true
-  if (notebook === 'annotated') return hasAnnotation(poem)
-  return !hasAnnotation(poem)
+function toNotebookMatchInputFromIndex(
+  poem: Pick<PoemIndex, 'dynasty' | 'author' | 'tags' | 'source'>,
+  hasAnnotationFlag: boolean
+) {
+  return {
+    dynasty: poem.dynasty,
+    author: poem.author,
+    tags: poem.tags || [],
+    source: poem.source || '',
+    hasAnnotation: hasAnnotationFlag,
+  }
+}
+
+function toNotebookMatchInputFromPoem(
+  poem: Pick<Poem, 'dynasty' | 'author' | 'tags' | 'source' | 'annotation'>
+) {
+  return {
+    dynasty: poem.dynasty,
+    author: poem.author,
+    tags: poem.tags || [],
+    source: poem.source || '',
+    annotation: poem.annotation,
+  }
+}
+
+async function buildAnnotatedIdSet(index: PoemIndex[]): Promise<Set<string>> {
+  const hasInlineFlag = index.some(item => typeof item.hasAnnotation === 'boolean')
+  if (hasInlineFlag) {
+    return new Set(index.filter(item => item.hasAnnotation === true).map(item => item.id))
+  }
+
+  // 兼容旧数据：若索引中没有 hasAnnotation，则回退到一次性全分片扫描。
+  const manifest = await loadManifest()
+  const annotatedIdSet = new Set<string>()
+
+  for (const shardMeta of manifest.shards) {
+    const poems = await loadShard(shardMeta.index, { cache: false })
+    for (const poem of poems) {
+      if (hasAnnotation(poem)) annotatedIdSet.add(poem.id)
+    }
+  }
+
+  return annotatedIdSet
 }
 
 function buildPreview(content: string[] | undefined): string {
@@ -106,40 +145,29 @@ async function ensureNotebookIndexCache() {
   if (notebookIndexCache) return
 
   const index = await loadIndex()
-  const hasInlineFlag = index.some(item => typeof item.hasAnnotation === 'boolean')
+  const annotatedIdSet = await buildAnnotatedIdSet(index)
+  const cache = new Map<PoemNotebookId, PoemIndex[]>()
 
-  if (hasInlineFlag) {
-    notebookIndexCache = {
-      all: index,
-      annotated: index.filter(p => p.hasAnnotation === true),
-      plain: index.filter(p => p.hasAnnotation !== true),
+  for (const notebook of getPoemNotebookDefinitions()) {
+    if (notebook.id === 'all') {
+      cache.set(notebook.id, index)
+      continue
     }
-    return
+    const items = index.filter(poem => matchesPoemNotebook(
+      notebook.id,
+      toNotebookMatchInputFromIndex(poem, annotatedIdSet.has(poem.id))
+    ))
+    cache.set(notebook.id, items)
   }
 
-  // 兼容旧数据：若索引中没有 hasAnnotation，则回退到一次性全分片扫描。
-  const manifest = await loadManifest()
-  const annotatedIdSet = new Set<string>()
-
-  for (const shardMeta of manifest.shards) {
-    const poems = await loadShard(shardMeta.index, { cache: false })
-    for (const poem of poems) {
-      if (hasAnnotation(poem)) annotatedIdSet.add(poem.id)
-    }
-  }
-
-  notebookIndexCache = {
-    all: index,
-    annotated: index.filter(p => annotatedIdSet.has(p.id)),
-    plain: index.filter(p => !annotatedIdSet.has(p.id)),
-  }
+  notebookIndexCache = cache
 }
 
 async function getNotebookIndex(notebook: PoemNotebookId): Promise<PoemIndex[]> {
-  const normalized = normalizeNotebook(notebook)
+  const normalized = normalizePoemNotebookId(notebook)
   if (normalized === 'all') return loadIndex()
   await ensureNotebookIndexCache()
-  return notebookIndexCache?.[normalized] || []
+  return notebookIndexCache?.get(normalized) || []
 }
 
 async function getPoemIndexByGlobalOffset(globalOffset: number): Promise<PoemIndex | null> {
@@ -232,7 +260,7 @@ export async function queryPoemIndex(opts: QueryOptions): Promise<{
   items: PoemIndex[]
   total: number
 }> {
-  const notebook = normalizeNotebook(opts.notebook)
+  const notebook = normalizePoemNotebookId(opts.notebook)
   const { q, dynasty, author, tag, offset, limit } = opts
 
   if (!q && !dynasty && !author && !tag && notebook === 'all') {
@@ -301,7 +329,7 @@ export async function searchPoemsFullText(opts: {
   const q = opts.q.trim()
   const offset = Math.max(0, opts.offset)
   const limit = Math.max(1, opts.limit)
-  const notebook = normalizeNotebook(opts.notebook)
+  const notebook = normalizePoemNotebookId(opts.notebook)
   const withTotal = opts.withTotal === true
 
   if (!q) {
@@ -319,7 +347,7 @@ export async function searchPoemsFullText(opts: {
       const poems = await loadShard(shardMeta.index, { cache: false })
 
       for (const poem of poems) {
-        if (!inNotebook(poem, notebook)) continue
+        if (!matchesPoemNotebook(notebook, toNotebookMatchInputFromPoem(poem))) continue
         const hit = buildSearchHit(poem, shardMeta.index, qLower)
         if (!hit) continue
 
@@ -344,7 +372,7 @@ export async function searchPoemsFullText(opts: {
     const poems = await loadShard(shardMeta.index, { cache: false })
 
     for (const poem of poems) {
-      if (!inNotebook(poem, notebook)) continue
+      if (!matchesPoemNotebook(notebook, toNotebookMatchInputFromPoem(poem))) continue
       const hit = buildSearchHit(poem, shardMeta.index, qLower)
       if (!hit) continue
 
@@ -378,29 +406,12 @@ export async function listPoemNotebooks(): Promise<PoemNotebook[]> {
   const all = await loadIndex()
   await ensureNotebookIndexCache()
 
-  const annotatedCount = notebookIndexCache?.annotated.length || 0
-  const plainCount = notebookIndexCache?.plain.length || 0
-
-  return [
-    {
-      id: 'all',
-      name: '全部诗词',
-      description: '全量诗词随机背诵',
-      count: all.length,
-    },
-    {
-      id: 'annotated',
-      name: '常用诗词本',
-      description: '优先含注释的诗词（annotation 非空）',
-      count: annotatedCount,
-    },
-    {
-      id: 'plain',
-      name: '纯原文诗词本',
-      description: '仅保留无注释诗词（annotation 为空）',
-      count: plainCount,
-    },
-  ]
+  return getPoemNotebookDefinitions().map(item => ({
+    id: item.id,
+    name: item.name,
+    description: item.description,
+    count: item.id === 'all' ? all.length : (notebookIndexCache?.get(item.id)?.length || 0),
+  }))
 }
 
 export async function getPoemIndexById(id: string): Promise<PoemIndex | null> {
@@ -433,7 +444,9 @@ export async function getPoemById(id: string, shardHint?: number): Promise<Poem 
 }
 
 export async function getRandomPoemIndex(notebook: PoemNotebookId = 'all'): Promise<PoemIndex> {
-  if (normalizeNotebook(notebook) === 'all') {
+  const normalized = normalizePoemNotebookId(notebook)
+
+  if (normalized === 'all') {
     const manifest = await loadManifest()
     const total = Number.isFinite(manifest.total) ? manifest.total : 0
     if (total > 0) {
@@ -443,7 +456,7 @@ export async function getRandomPoemIndex(notebook: PoemNotebookId = 'all'): Prom
     }
   }
 
-  const source = await getNotebookIndex(notebook)
+  const source = await getNotebookIndex(normalized)
   if (source.length === 0) {
     const index = await loadIndex()
     return index[Math.floor(Math.random() * index.length)]
@@ -452,7 +465,9 @@ export async function getRandomPoemIndex(notebook: PoemNotebookId = 'all'): Prom
 }
 
 export async function getDailyPoemIndex(notebook: PoemNotebookId = 'all'): Promise<PoemIndex> {
-  if (normalizeNotebook(notebook) === 'all') {
+  const normalized = normalizePoemNotebookId(notebook)
+
+  if (normalized === 'all') {
     const manifest = await loadManifest()
     const total = Number.isFinite(manifest.total) ? manifest.total : 0
     if (total > 0) {
@@ -465,7 +480,7 @@ export async function getDailyPoemIndex(notebook: PoemNotebookId = 'all'): Promi
     }
   }
 
-  const source = await getNotebookIndex(notebook)
+  const source = await getNotebookIndex(normalized)
   const index = source.length > 0 ? source : await loadIndex()
   const today = new Date()
   const dayOfYear = Math.floor(

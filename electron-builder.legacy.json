@@ -6,6 +6,7 @@
   },
   "files": [
     "electron/**/*",
+    "lib/poem-notebooks.json",
     "package.json"
   ],
   "extraResources": [

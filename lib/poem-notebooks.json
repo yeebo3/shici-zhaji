@@ -1,0 +1,23 @@
+[
+  {
+    "id": "all",
+    "name": "全部诗词",
+    "description": "全量诗词随机背诵"
+  },
+  {
+    "id": "annotated",
+    "name": "常用诗词本",
+    "description": "优先含注释的诗词",
+    "rule": {
+      "requireAnnotation": true
+    }
+  },
+  {
+    "id": "tang-song",
+    "name": "唐宋诗词本",
+    "description": "仅保留唐宋诗词",
+    "rule": {
+      "dynasties": ["唐", "宋"]
+    }
+  }
+]

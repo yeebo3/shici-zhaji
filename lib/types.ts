@@ -58,9 +58,11 @@ export type ViewMode = 'original' | 'annotated' | 'appreciation' | 'all'
 
 export type ReciteMode = 'read' | 'mask' | 'line' | 'test'
 
-export type ReciteScopeId = 'annotated' | `group:${string}`
+export type BuiltinPoemNotebookId = 'all' | 'annotated' | 'plain'
 
-export type PoemNotebookId = 'all' | 'annotated' | 'plain'
+export type PoemNotebookId = BuiltinPoemNotebookId | (string & {})
+
+export type ReciteScopeId = PoemNotebookId | `group:${string}`
 
 export type PoemNotebook = {
   id: PoemNotebookId

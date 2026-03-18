@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { searchPoemsFullText } from '@/lib/server-poems'
+import { normalizePoemNotebookId } from '@/lib/notebooks'
 
 const DEFAULT_LIMIT = 60
 const MAX_LIMIT = 200
@@ -17,10 +18,7 @@ export async function GET(req: NextRequest) {
     const q = searchParams.get('q')?.trim() || ''
     const withTotalRaw = searchParams.get('withTotal')?.trim()
     const withTotal = withTotalRaw === '1' || withTotalRaw === 'true'
-    const notebookRaw = searchParams.get('notebook')?.trim()
-    const notebook = notebookRaw === 'annotated' || notebookRaw === 'plain'
-      ? notebookRaw
-      : 'all'
+    const notebook = normalizePoemNotebookId(searchParams.get('notebook'))
     const offset = parseNonNegativeInt(searchParams.get('offset'), 0)
     const reqLimit = parseNonNegativeInt(searchParams.get('limit'), DEFAULT_LIMIT)
     const limit = Math.max(1, Math.min(reqLimit, MAX_LIMIT))

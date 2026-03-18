@@ -4,8 +4,9 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Navbar from '@/components/Navbar'
 import Loading from '@/components/Loading'
-import { getPoemById, getPoemIndexById, getRandomPoemIndex } from '@/lib/poems'
-import { Poem, PoemGroup, ReciteMode, ReciteScopeId } from '@/lib/types'
+import { getPoemById, getPoemIndexById, getPoemNotebooks, getRandomPoemIndex } from '@/lib/poems'
+import { Poem, PoemGroup, PoemNotebook, ReciteMode, ReciteScopeId } from '@/lib/types'
+import { DEFAULT_RECITE_NOTEBOOK_ID } from '@/lib/notebooks'
 import { getPoemGroups, markMemorized, markViewed } from '@/lib/storage'
 import { useReciteNotebook } from '@/hooks/useStudy'
 import {
@@ -88,6 +89,7 @@ function RecitePageContent() {
   const [entryFrom, setEntryFrom] = useState('/')
   const [poem, setPoem] = useState<Poem | null>(null)
   const [groups, setGroups] = useState<PoemGroup[]>([])
+  const [notebooks, setNotebooks] = useState<PoemNotebook[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [mode, setMode] = useState<ReciteMode>('read')
@@ -129,6 +131,20 @@ function RecitePageContent() {
 
   useEffect(() => {
     let cancelled = false
+    async function loadNotebooks() {
+      try {
+        const list = await getPoemNotebooks()
+        if (!cancelled) setNotebooks(list)
+      } catch {
+        if (!cancelled) setNotebooks([])
+      }
+    }
+    void loadNotebooks()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
     async function loadGroups() {
       try {
         const list = await getPoemGroups()
@@ -140,6 +156,17 @@ function RecitePageContent() {
     void loadGroups()
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    if (isGroupScope(notebook)) return
+    if (notebooks.length === 0) return
+    const known = notebooks.some(item => item.id === notebook)
+    if (known) return
+    const fallback = notebooks.find(item => item.id === DEFAULT_RECITE_NOTEBOOK_ID)?.id
+      || notebooks[0]?.id
+      || DEFAULT_RECITE_NOTEBOOK_ID
+    void setNotebook(fallback)
+  }, [notebook, notebooks, setNotebook])
 
   useEffect(() => {
     const from = searchParams.get('from')
@@ -207,13 +234,19 @@ function RecitePageContent() {
   )
 
   const scopeOptions = useMemo<ReciteScopeOption[]>(() => ([
-    { id: 'annotated', name: '常用诗词本', count: 0 },
+    ...(notebooks.length > 0
+      ? notebooks.map(item => ({
+        id: item.id as ReciteScopeId,
+        name: item.name,
+        count: item.count,
+      }))
+      : [{ id: DEFAULT_RECITE_NOTEBOOK_ID as ReciteScopeId, name: '常用诗词本', count: 0 }]),
     ...groups.map(group => ({
       id: `${GROUP_SCOPE_PREFIX}${group.id}` as ReciteScopeId,
       name: group.name,
       count: group.poemIds.length,
     })),
-  ]), [groups])
+  ]), [groups, notebooks])
 
   const resetState = () => {
     setRevealedWords(new Set())
@@ -269,9 +302,7 @@ function RecitePageContent() {
     }
 
     let p = null as Awaited<ReturnType<typeof getRandomPoemIndex>> | null
-    if (notebook === 'annotated') {
-      p = await getRandomPoemIndex('annotated')
-    } else if (isGroupScope(notebook)) {
+    if (isGroupScope(notebook)) {
       const groupId = getGroupIdFromScope(notebook)
       const group = groups.find(item => item.id === groupId)
       if (group) {
@@ -288,13 +319,18 @@ function RecitePageContent() {
           }
         }
       }
+    } else {
+      p = await getRandomPoemIndex(notebook)
     }
 
     if (!p) {
-      if (notebook !== 'annotated') {
-        await setNotebook('annotated')
+      const fallbackNotebook = notebooks.find(item => item.id === DEFAULT_RECITE_NOTEBOOK_ID)?.id
+        || notebooks[0]?.id
+        || DEFAULT_RECITE_NOTEBOOK_ID
+      if (notebook !== fallbackNotebook) {
+        await setNotebook(fallbackNotebook)
       }
-      p = await getRandomPoemIndex('annotated')
+      p = await getRandomPoemIndex(fallbackNotebook)
     }
     router.push(`/recite?id=${encodeURIComponent(p.id)}&s=${p.shard}&from=${encodeURIComponent(entryFrom)}`)
   }

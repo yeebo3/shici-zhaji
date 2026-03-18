@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { queryPoemIndex } from '@/lib/server-poems'
+import { normalizePoemNotebookId } from '@/lib/notebooks'
 
 const DEFAULT_LIMIT = 120
 const MAX_LIMIT = 300
@@ -18,10 +19,7 @@ export async function GET(req: NextRequest) {
     const dynasty = searchParams.get('dynasty')?.trim() || undefined
     const author = searchParams.get('author')?.trim() || undefined
     const tag = searchParams.get('tag')?.trim() || undefined
-    const notebookRaw = searchParams.get('notebook')?.trim()
-    const notebook = notebookRaw === 'annotated' || notebookRaw === 'plain'
-      ? notebookRaw
-      : 'all'
+    const notebook = normalizePoemNotebookId(searchParams.get('notebook'))
     const offset = parseNonNegativeInt(searchParams.get('offset'), 0)
     const reqLimit = parseNonNegativeInt(searchParams.get('limit'), DEFAULT_LIMIT)
     const limit = Math.max(1, Math.min(reqLimit, MAX_LIMIT))

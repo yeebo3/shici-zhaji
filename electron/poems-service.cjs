@@ -4,6 +4,211 @@ const path = require('node:path')
 
 const DEFAULT_PAGE_LIMIT = 120
 const DEFAULT_FULLTEXT_LIMIT = 60
+const DEFAULT_NOTEBOOK_ID = 'all'
+const NOTEBOOK_CONFIG_PATH = path.join(__dirname, '..', 'lib', 'poem-notebooks.json')
+
+const BUILTIN_NOTEBOOKS = [
+  {
+    id: 'all',
+    name: '全部诗词',
+    description: '全量诗词随机背诵',
+  },
+  {
+    id: 'annotated',
+    name: '常用诗词本',
+    description: '优先含注释的诗词（annotation 非空）',
+    rule: { requireAnnotation: true },
+  },
+  {
+    id: 'plain',
+    name: '纯原文诗词本',
+    description: '仅保留无注释诗词（annotation 为空）',
+    rule: { requireAnnotation: false },
+  },
+]
+
+function normalizeStringArray(input) {
+  if (!Array.isArray(input)) return undefined
+  const values = [...new Set(input.map(item => String(item || '').trim()).filter(Boolean))]
+  return values.length > 0 ? values : undefined
+}
+
+function normalizeNotebookRule(rule) {
+  if (!rule || typeof rule !== 'object') return undefined
+  const normalized = {}
+
+  if (typeof rule.requireAnnotation === 'boolean') {
+    normalized.requireAnnotation = rule.requireAnnotation
+  }
+
+  normalized.dynasties = normalizeStringArray(rule.dynasties)
+  normalized.authors = normalizeStringArray(rule.authors)
+  normalized.tagsAny = normalizeStringArray(rule.tagsAny)
+  normalized.sources = normalizeStringArray(rule.sources)
+
+  if (
+    normalized.requireAnnotation === undefined
+    && !normalized.dynasties
+    && !normalized.authors
+    && !normalized.tagsAny
+    && !normalized.sources
+  ) {
+    return undefined
+  }
+
+  return normalized
+}
+
+function normalizeNotebookDefinition(input) {
+  if (!input || typeof input !== 'object') return null
+
+  const id = typeof input.id === 'string' ? input.id.trim() : ''
+  const name = typeof input.name === 'string' ? input.name.trim() : ''
+  const description = typeof input.description === 'string' ? input.description.trim() : ''
+  if (!id || !name || !description) return null
+  if (id.startsWith('group:')) return null
+
+  return {
+    id,
+    name,
+    description,
+    rule: normalizeNotebookRule(input.rule),
+  }
+}
+
+function loadNotebookDefinitions() {
+  let rawList = []
+  try {
+    const parsed = JSON.parse(fsSync.readFileSync(NOTEBOOK_CONFIG_PATH, 'utf8'))
+    rawList = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed && parsed.notebooks) ? parsed.notebooks : []
+  } catch {
+    rawList = []
+  }
+
+  const byId = new Map()
+  for (const builtin of BUILTIN_NOTEBOOKS) {
+    byId.set(builtin.id, builtin)
+  }
+  for (const item of rawList) {
+    const normalized = normalizeNotebookDefinition(item)
+    if (!normalized || byId.has(normalized.id)) continue
+    byId.set(normalized.id, normalized)
+  }
+  return Array.from(byId.values())
+}
+
+const NOTEBOOK_DEFINITIONS = loadNotebookDefinitions()
+const NOTEBOOK_DEFINITION_MAP = new Map(NOTEBOOK_DEFINITIONS.map(item => [item.id, item]))
+
+function normalizeNotebookId(input) {
+  const value = typeof input === 'string' ? input.trim() : ''
+  if (value && NOTEBOOK_DEFINITION_MAP.has(value)) return value
+  return DEFAULT_NOTEBOOK_ID
+}
+
+function includesValue(list, value) {
+  if (!list || list.length === 0) return true
+  if (!value) return false
+  return list.includes(value)
+}
+
+function matchesTagsAny(list, tags) {
+  if (!list || list.length === 0) return true
+  if (!Array.isArray(tags) || tags.length === 0) return false
+  const tagSet = new Set(tags)
+  return list.some(tag => tagSet.has(tag))
+}
+
+function resolveHasAnnotation(input) {
+  if (typeof input.hasAnnotation === 'boolean') return input.hasAnnotation
+  return Array.isArray(input.annotation) && input.annotation.length > 0
+}
+
+function matchesNotebookRule(rule, input) {
+  if (!rule) return true
+
+  if (typeof rule.requireAnnotation === 'boolean') {
+    if (resolveHasAnnotation(input) !== rule.requireAnnotation) return false
+  }
+
+  if (!includesValue(rule.dynasties, input.dynasty)) return false
+  if (!includesValue(rule.authors, input.author)) return false
+  if (!includesValue(rule.sources, input.source)) return false
+  if (!matchesTagsAny(rule.tagsAny, input.tags)) return false
+  return true
+}
+
+function matchesNotebookById(notebookId, input) {
+  const normalized = normalizeNotebookId(notebookId)
+  const definition = NOTEBOOK_DEFINITION_MAP.get(normalized)
+  if (!definition) return true
+  return matchesNotebookRule(definition.rule, input)
+}
+
+function toNotebookInputFromIndex(poem, hasAnnotation) {
+  return {
+    dynasty: poem.dynasty,
+    author: poem.author,
+    tags: poem.tags || [],
+    source: poem.source || '',
+    hasAnnotation,
+  }
+}
+
+function toNotebookInputFromPoem(poem) {
+  return {
+    dynasty: poem.dynasty,
+    author: poem.author,
+    tags: poem.tags || [],
+    source: poem.source || '',
+    annotation: poem.annotation,
+    hasAnnotation: poem.hasAnnotation,
+  }
+}
+
+function buildSqlNotebookClause(notebookId, poemAlias = 'p') {
+  const definition = NOTEBOOK_DEFINITION_MAP.get(normalizeNotebookId(notebookId))
+  if (!definition || !definition.rule) {
+    return { where: [], params: [] }
+  }
+
+  const where = []
+  const params = []
+  const rule = definition.rule
+
+  if (typeof rule.requireAnnotation === 'boolean') {
+    where.push(`${poemAlias}.has_annotation = ?`)
+    params.push(rule.requireAnnotation ? 1 : 0)
+  }
+
+  if (Array.isArray(rule.dynasties) && rule.dynasties.length > 0) {
+    const placeholders = rule.dynasties.map(() => '?').join(', ')
+    where.push(`${poemAlias}.dynasty IN (${placeholders})`)
+    params.push(...rule.dynasties)
+  }
+
+  if (Array.isArray(rule.authors) && rule.authors.length > 0) {
+    const placeholders = rule.authors.map(() => '?').join(', ')
+    where.push(`${poemAlias}.author IN (${placeholders})`)
+    params.push(...rule.authors)
+  }
+
+  if (Array.isArray(rule.sources) && rule.sources.length > 0) {
+    const placeholders = rule.sources.map(() => '?').join(', ')
+    where.push(`${poemAlias}.source IN (${placeholders})`)
+    params.push(...rule.sources)
+  }
+
+  if (Array.isArray(rule.tagsAny) && rule.tagsAny.length > 0) {
+    const placeholders = rule.tagsAny.map(() => '?').join(', ')
+    where.push(`EXISTS (SELECT 1 FROM poem_tags pt WHERE pt.poem_id = ${poemAlias}.id AND pt.tag IN (${placeholders}))`)
+    params.push(...rule.tagsAny)
+  }
+
+  return { where, params }
+}
 
 function createPoemsService({ dataDir, maxCachedShards = 64 }) {
   const indexPath = path.join(dataDir, 'index.json')
@@ -32,8 +237,7 @@ function createPoemsService({ dataDir, maxCachedShards = 64 }) {
   }
 
   function normalizeNotebook(notebook) {
-    if (notebook === 'annotated' || notebook === 'plain') return notebook
-    return 'all'
+    return normalizeNotebookId(notebook)
   }
 
   function hasAnnotation(poem) {
@@ -41,9 +245,7 @@ function createPoemsService({ dataDir, maxCachedShards = 64 }) {
   }
 
   function inNotebook(poem, notebook) {
-    if (notebook === 'all') return true
-    if (notebook === 'annotated') return hasAnnotation(poem)
-    return !hasAnnotation(poem)
+    return matchesNotebookById(notebook, toNotebookInputFromPoem(poem))
   }
 
   function buildPreview(content) {
@@ -130,8 +332,11 @@ function createPoemsService({ dataDir, maxCachedShards = 64 }) {
       const where = []
       const params = []
 
-      if (opts.notebook === 'annotated') where.push('p.has_annotation = 1')
-      if (opts.notebook === 'plain') where.push('p.has_annotation = 0')
+      const notebookClause = buildSqlNotebookClause(opts.notebook, 'p')
+      if (notebookClause.where.length > 0) {
+        where.push(...notebookClause.where)
+        params.push(...notebookClause.params)
+      }
       if (opts.dynasty) {
         where.push('p.dynasty = ?')
         params.push(opts.dynasty)
@@ -160,8 +365,11 @@ function createPoemsService({ dataDir, maxCachedShards = 64 }) {
       const where = []
       const params = []
 
-      if (opts.notebook === 'annotated') where.push('p.has_annotation = 1')
-      if (opts.notebook === 'plain') where.push('p.has_annotation = 0')
+      const notebookClause = buildSqlNotebookClause(opts.notebook, 'p')
+      if (notebookClause.where.length > 0) {
+        where.push(...notebookClause.where)
+        params.push(...notebookClause.params)
+      }
 
       if (opts.q) {
         const qLike = `%${opts.q.toLowerCase()}%`
@@ -252,30 +460,16 @@ function createPoemsService({ dataDir, maxCachedShards = 64 }) {
     }
 
     function listPoemNotebooks() {
-      const all = Number(db.prepare('SELECT COUNT(*) AS total FROM poems').get().total || 0)
-      const annotated = Number(db.prepare('SELECT COUNT(*) AS total FROM poems WHERE has_annotation = 1').get().total || 0)
-      const plain = Number(db.prepare('SELECT COUNT(*) AS total FROM poems WHERE has_annotation = 0').get().total || 0)
-
-      return [
-        {
-          id: 'all',
-          name: '全部诗词',
-          description: '全量诗词随机背诵',
-          count: all,
-        },
-        {
-          id: 'annotated',
-          name: '常用诗词本',
-          description: '优先含注释的诗词（annotation 非空）',
-          count: annotated,
-        },
-        {
-          id: 'plain',
-          name: '纯原文诗词本',
-          description: '仅保留无注释诗词（annotation 为空）',
-          count: plain,
-        },
-      ]
+      return NOTEBOOK_DEFINITIONS.map(notebook => {
+        const { whereSql, params } = buildWhereClause({ notebook: notebook.id })
+        const row = db.prepare(`SELECT COUNT(*) AS total FROM poems p ${whereSql}`).get(...params)
+        return {
+          id: notebook.id,
+          name: notebook.name,
+          description: notebook.description,
+          count: Number(row && row.total ? row.total : 0),
+        }
+      })
     }
 
     function getPoemById(id) {
@@ -446,43 +640,52 @@ function createPoemsService({ dataDir, maxCachedShards = 64 }) {
     return poems
   }
 
-  async function ensureNotebookIndexCache() {
-    if (notebookIndexCache) return
-
-    const index = await loadIndex()
+  async function buildAnnotatedIdSet(index) {
     const hasInlineFlag = index.some(item => typeof item.hasAnnotation === 'boolean')
-
     if (hasInlineFlag) {
-      notebookIndexCache = {
-        all: index,
-        annotated: index.filter(item => item.hasAnnotation === true),
-        plain: index.filter(item => item.hasAnnotation !== true),
-      }
-      return
+      return new Set(index.filter(item => item.hasAnnotation === true).map(item => item.id))
     }
 
     const manifest = await loadManifest()
     const annotatedIdSet = new Set()
-
     for (const shardMeta of manifest.shards || []) {
       const poems = await loadShard(shardMeta.index, { cache: false })
       for (const poem of poems) {
         if (hasAnnotation(poem)) annotatedIdSet.add(poem.id)
       }
     }
+    return annotatedIdSet
+  }
 
-    notebookIndexCache = {
-      all: index,
-      annotated: index.filter(item => annotatedIdSet.has(item.id)),
-      plain: index.filter(item => !annotatedIdSet.has(item.id)),
+  async function ensureNotebookIndexCache() {
+    if (notebookIndexCache) return
+
+    const index = await loadIndex()
+    const annotatedIdSet = await buildAnnotatedIdSet(index)
+    const cache = new Map()
+
+    for (const notebook of NOTEBOOK_DEFINITIONS) {
+      if (notebook.id === 'all') {
+        cache.set(notebook.id, index)
+        continue
+      }
+      const items = index.filter(item => (
+        matchesNotebookById(
+          notebook.id,
+          toNotebookInputFromIndex(item, annotatedIdSet.has(item.id))
+        )
+      ))
+      cache.set(notebook.id, items)
     }
+
+    notebookIndexCache = cache
   }
 
   async function getNotebookIndex(notebook) {
     const normalized = normalizeNotebook(notebook)
     if (normalized === 'all') return loadIndex()
     await ensureNotebookIndexCache()
-    return notebookIndexCache && notebookIndexCache[normalized] ? notebookIndexCache[normalized] : []
+    return notebookIndexCache && notebookIndexCache.get(normalized) ? notebookIndexCache.get(normalized) : []
   }
 
   async function getPoemIndexByGlobalOffset(globalOffset) {
@@ -743,29 +946,16 @@ function createPoemsService({ dataDir, maxCachedShards = 64 }) {
     const all = await loadIndex()
     await ensureNotebookIndexCache()
 
-    const annotatedCount = notebookIndexCache ? notebookIndexCache.annotated.length : 0
-    const plainCount = notebookIndexCache ? notebookIndexCache.plain.length : 0
-
-    return [
-      {
-        id: 'all',
-        name: '全部诗词',
-        description: '全量诗词随机背诵',
-        count: all.length,
-      },
-      {
-        id: 'annotated',
-        name: '常用诗词本',
-        description: '优先含注释的诗词（annotation 非空）',
-        count: annotatedCount,
-      },
-      {
-        id: 'plain',
-        name: '纯原文诗词本',
-        description: '仅保留无注释诗词（annotation 为空）',
-        count: plainCount,
-      },
-    ]
+    return NOTEBOOK_DEFINITIONS.map(notebook => ({
+      id: notebook.id,
+      name: notebook.name,
+      description: notebook.description,
+      count: notebook.id === 'all'
+        ? all.length
+        : (notebookIndexCache && notebookIndexCache.get(notebook.id)
+          ? notebookIndexCache.get(notebook.id).length
+          : 0),
+    }))
   }
 
   async function getPoemIndexById(id) {

@@ -47,9 +47,8 @@ function normalizeReviewCount(input) {
 function normalizeReciteScope(input) {
   if (typeof input !== 'string') return DEFAULT_RECITE_SCOPE
   const value = input.trim()
-  if (value === 'annotated') return 'annotated'
-  if (value === 'all' || value === 'plain') return 'annotated'
-  if (!value.startsWith(GROUP_SCOPE_PREFIX)) return DEFAULT_RECITE_SCOPE
+  if (!value) return DEFAULT_RECITE_SCOPE
+  if (!value.startsWith(GROUP_SCOPE_PREFIX)) return value
   const groupId = normalizeGroupId(value.slice(GROUP_SCOPE_PREFIX.length))
   if (!groupId) return DEFAULT_RECITE_SCOPE
   return `${GROUP_SCOPE_PREFIX}${groupId}`
