@@ -1,138 +1,135 @@
 # 诗词札记（shici-zhaji）
 
-> 最后更新：2026-03-17
+离线古诗词学习应用，支持检索、阅读、背诵、收藏、学习统计与分组管理。  
+项目同时提供 Web 运行方式和 Windows 桌面端打包能力。
+该项目主要面向诗词爱好者、学生、教师等需要离线学习古诗词、古文的人群。
+mini版本内置8500首诗词，均有注释、赏析、译文(少部分缺少译文)，并内置“高中必背诗词分组”
+full版本内置68万首诗词，绝大部分没有注释等信息，且占用磁盘空间较大
+## to使用者
 
-基于 Next.js 14 + TypeScript 的离线古诗词学习应用，支持检索、详情阅读、背诵练习、学习记录与 Windows 桌面端打包。
+### 功能概览
 
-## 1. 当前状态
+- 今日诗词、随机诗词、继续学习入口
+- 按朝代/作者/主题分类浏览，支持关键词搜索
+- 诗词详情页支持注释、译文、赏析切换
+- 背诵练习 4 种模式：阅读、遮挡、逐句、自测
+- 学习记录：收藏、记忆状态、复习次数、最近学习
+- 分组管理：新建分组、重命名、删除、将诗词加入或移出分组
 
-- 前端页面：首页、分类、详情、我的学习、背诵页已可用。
-- 学习记录：桌面端优先写入 SQLite（`userData/study.db`），网页模式回退 `localStorage`。
-- 背诵模式：阅读、遮挡、逐句、自测。
-- 背诵范围（mini 版）：`常用诗词本` + `用户自定义分组`。
-- 逐句模式：按句子推进（到下一个 `。`），不是按词/字推进。
-- 标记状态：点击“记住了 / 没记住”后会持久化，点击“下一首”前会等待写入完成。
+### 如何使用（Windows）
 
-## 2. 项目目录
+1. 获取安装包或便携版，请使用网盘链接，也可直接联系开发者。若拉取仓库使用指令下载，安装包位于 `dist-desktop/installers/` 或 Release 页面）。
+2. 双击运行 `诗词札记-Setup-<version>.exe`（安装版）或 `诗词札记-<version>.exe`（便携版）。
+3. 首次打开后即可离线使用，无需联网查询诗词内容。
 
-```text
-app/                 页面与 API 路由
-components/          复用 UI 组件
-hooks/               主题、学习状态、分组等 hooks
-lib/                 类型、存储、客户端/服务端数据访问
-electron/            桌面端主进程与 preload
-scripts/             数据生成、静态构建、打包辅助脚本
-data/                源数据与中间数据
-public/data/         运行时数据（index/shards/sqlite）
-dist-desktop/        桌面端构建与打包产物
-```
+### 数据保存位置
 
-## 3. 数据档位（full / mini）
+- 桌面端学习数据默认保存在系统用户目录下（`userData/study.db`）。
+- 若 SQLite 不可用，会回退到 `userData/study-fallback.json`。
+- Web 模式下学习数据保存在浏览器 `localStorage`。
 
-- `full`：全量数据（用于完整版）。
-- `mini`：仅保留 `annotation` 非空数据（用于轻量版）。
+### 常见问题
 
-常用命令：
+- 打开后提示“加载失败”：通常是运行时数据缺失或损坏，建议重新生成或重新安装打包产物。
+- 背诵范围里看不到自定义分组：请先在诗词详情页将诗词加入分组，再进入背诵页选择范围。
+
+## 若拉取该仓库
+
+### 技术栈
+
+- Next.js 14
+- React 18 + TypeScript
+- Tailwind CSS
+- Electron（桌面端）
+- Node `node:sqlite`（用于索引库与桌面学习数据）
+
+### 环境要求
+
+- Node.js 22+（推荐 24+）
+- npm
+- 打包链路在 Linux 下额外依赖 `wine`/`wine64`（用于图标写入）
+
+### 快速开始（Web）
 
 ```bash
-npm run generate:full     # 全量数据 + SQLite 索引库
-npm run generate:mini     # mini 数据 + SQLite 索引库
-npm run generate          # 等同 generate:full（兼容旧命令）
-npm run build:index:sqlite
-```
-
-当前 `manifest.json`（你刚刚这轮 mini 构建后）：
-
-- `generatedAt`: `2026-03-17T14:54:42.739Z`
-- `total`: `8559`
-- `shards`: `18`
-- `sources`: `local`, `vmijunv`
-
-## 4. 开发命令
-
-```bash
+npm install
+npm run generate
 npm run dev
-npm run build
-npm run start
 ```
 
-数据处理相关：
+说明：
 
-```bash
-npm run fetch
-npm run fetch:gushiwen
-npm run convert:vmijunv
-npm run import -- <file>
-```
+- `npm run generate` 默认等同 `generate:full`，会生成 `public/data` 下索引、分片和 SQLite 索引库。
+- 开发启动后访问 `http://localhost:3000`。
 
-## 5. 桌面端（Windows，lean 默认）
-
-运行：
+### 快速开始（桌面端本地运行）
 
 ```bash
 npm run desktop:run
 ```
 
-打包（默认均为 lean 模式）：
+该命令会自动执行：
+
+1. 构建诗词 SQLite 索引
+2. 构建桌面静态前端
+3. 准备 Electron 静态运行时
+4. 启动 Electron 主进程
+
+### 数据构建档位
+
+- `full`：全量数据
+- `mini`：仅保留有注释（`annotation` 非空）的诗词
+
+常用命令：
 
 ```bash
-npm run package:win                # NSIS 安装包
-npm run package:win:portable       # 便携版 exe
-npm run package:win:zip            # ZIP（按当前 public/data 数据档位打包）
-npm run package:win:zip:mini       # 先 generate:mini，再打包 ZIP
-npm run package:win:zip:mini:lean  # 等同 package:win:zip:mini（兼容别名）
-npm run package:win:dir            # 输出 win-unpacked 目录
+npm run generate:full
+npm run generate:mini
+npm run build:index:sqlite
 ```
 
-保留的旧链路（legacy）：
+### 数据抓取与导入（可选）
 
 ```bash
-npm run desktop:run:legacy
-npm run package:win:legacy
-npm run package:win:legacy:nsis
+npm run fetch
+npm run fetch:gushiwen
+npm run convert:vmijunv
+npm run import -- <json-file>
 ```
 
-## 6. 打包产物位置
+### Windows 打包
 
-目录：`dist-desktop/installers/`
+```bash
+npm run package:win           # NSIS 安装包
+npm run package:win:portable  # 便携版 exe
+npm run package:win:zip       # ZIP
+npm run package:win:zip:mini  # mini 数据 + ZIP
+npm run package:win:dir       # 仅输出 win-unpacked
+```
 
-典型文件：
+打包产物目录：`dist-desktop/installers/`
 
-- `诗词札记-<version>.exe`
-- `诗词札记-Setup-<version>.exe`
-- `诗词札记-<version>.zip`
-- `诗词札记-<version>-mini.zip`
-- `win-unpacked/`
+### 目录结构
 
-本次刚生成的 mini ZIP：
+```text
+app/                 Next.js 页面与 API 路由
+components/          UI 组件
+hooks/               业务 hooks（学习状态、分组、背诵范围等）
+lib/                 数据访问、类型、存储抽象
+electron/            Electron 主进程、preload、桌面存储服务
+scripts/             数据生成与打包脚本
+data/                源数据与抓取数据
+public/data/         运行时诗词数据（manifest/index/shards/sqlite）
+dist-desktop/        桌面端构建与打包输出
+```
 
-- 文件：`dist-desktop/installers/诗词札记-0.1.0-mini.zip`
-- 体积：约 `120 MB`
-- SHA-256：`cf551c6a9540f5e9b3b7c0910367fc5066dd4ebeb158104956a6fcf202ff4794`
-
-## 7. lean 打包流程（实际执行）
-
-1. `generate:*`（按 full/mini 生成 `manifest`、`index`、`shards`）
-2. `build:index:sqlite`（生成 `public/data/poems-index.db`）
-3. `build:web:desktop-static`（Next 静态导出）
-4. `prepare:desktop-static-runtime`
-5. `prepare:desktop-lean-app`
-6. `electron-builder --config electron-builder.static.lean.json`
-7. `scripts/package-win-zip.js`（ZIP 压缩）
-
-体积控制（lean）：
-
-- 只保留必要 Electron 运行文件与指定语言包。
-- 检测到 SQLite 后，自动去除 `data/index.json` 与 `data/shards` 冗余文件。
-
-## 8. 验证命令（建议）
+### 校验建议
 
 ```bash
 npx tsc --noEmit
 node --check electron/study-service.cjs
-npm run package:win:zip:mini:lean
 ```
 
-说明：
+注意：
 
-- `npm run lint` 在未初始化 ESLint 时会进入 Next.js 交互配置，不适合作为当前仓库的无交互校验命令。
+- 当前仓库若未初始化 ESLint，`npm run lint` 会进入 Next.js 交互式配置，不适合无交互 CI 直接使用。
