@@ -4,9 +4,11 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { BookOpen, Grid3X3, User, Moon, Sun } from 'lucide-react'
 import { useTheme } from '@/hooks/useStudy'
+import { useAndroidExitOnRootRoutes } from '@/hooks/useAndroidExitOnRootRoutes'
 
 export default function Navbar() {
   const pathname = usePathname()
+  useAndroidExitOnRootRoutes(pathname)
   const { theme, toggleTheme } = useTheme()
 
   const links = [

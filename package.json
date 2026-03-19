@@ -48,6 +48,7 @@
     "convert:vmijunv": "node scripts/convert-vmijunv-data.js"
   },
   "dependencies": {
+    "@capacitor/app": "^6.0.3",
     "@capacitor/core": "^6.1.2",
     "framer-motion": "^11.18.2",
     "lucide-react": "^0.344.0",

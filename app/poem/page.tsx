@@ -10,6 +10,7 @@ import { getPoemById } from '@/lib/poems'
 import { Poem, ViewMode } from '@/lib/types'
 import { markViewed } from '@/lib/storage'
 import { useFavorite, useFontSize } from '@/hooks/useStudy'
+import { useAndroidBackToPath } from '@/hooks/useAndroidBackToPath'
 import {
   Heart,
   BookOpen,
@@ -61,6 +62,8 @@ function PoemDetailPageContent() {
   const searchParams = useSearchParams()
   const id = decodePoemId(searchParams.get('id'))
   const shardHint = parseShardHint(searchParams.get('s'))
+  const from = searchParams.get('from')
+  const backTarget = from && from.startsWith('/') && from !== pathname ? from : null
   const [poem, setPoem] = useState<Poem | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -69,6 +72,8 @@ function PoemDetailPageContent() {
   const [showGroupPanel, setShowGroupPanel] = useState(false)
   const { isFavorite, toggle: toggleFav } = useFavorite(id || '')
   const { fontSize, setFontSize, fontClass } = useFontSize()
+
+  useAndroidBackToPath(backTarget)
 
   useEffect(() => {
     async function load() {
@@ -120,8 +125,6 @@ function PoemDetailPageContent() {
     )
   }
 
-  const from = searchParams.get('from')
-  const backTarget = from && from.startsWith('/') && from !== pathname ? from : null
   const currentPoemPath = `/poem?id=${encodeURIComponent(poem.id)}${shardHint !== undefined ? `&s=${shardHint}` : ''}`
   const reciteFrom = backTarget || currentPoemPath
 

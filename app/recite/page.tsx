@@ -9,6 +9,7 @@ import { Poem, PoemGroup, PoemNotebook, ReciteMode, ReciteScopeId } from '@/lib/
 import { DEFAULT_RECITE_NOTEBOOK_ID } from '@/lib/notebooks'
 import { getPoemGroups, markMemorized, markViewed } from '@/lib/storage'
 import { useReciteNotebook } from '@/hooks/useStudy'
+import { useAndroidBackToPath } from '@/hooks/useAndroidBackToPath'
 import {
   ChevronLeft,
   Eye,
@@ -98,6 +99,8 @@ function RecitePageContent() {
   const [testRevealed, setTestRevealed] = useState(false)
   const [result, setResult] = useState<'none' | 'memorized' | 'forgot'>('none')
   const pendingMarkRef = useRef<Promise<void> | null>(null)
+
+  useAndroidBackToPath(entryFrom)
 
   useEffect(() => {
     async function load() {
