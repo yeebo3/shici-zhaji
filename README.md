@@ -38,7 +38,13 @@
 - **诗词本机制**：支持“全部诗词 / 常用诗词本”等范围学习
 
 ---
+## 技术栈
 
+- Next.js 14
+- React 18 + TypeScript
+- Tailwind CSS
+- Electron（桌面端）
+- Node `node:sqlite`（用于索引库与桌面学习数据）
 ## 🖥️ 多端支持说明
 
 ### Windows 桌面端
