@@ -488,14 +488,3 @@ export async function getDailyPoemIndex(notebook: PoemNotebookId = 'all'): Promi
   )
   return index[dayOfYear % index.length]
 }
-
-export async function getCatalogMeta() {
-  const manifest = await loadManifest()
-  return {
-    total: manifest.total,
-    dynasties: manifest.dynasties,
-    authors: manifest.authors,
-    tags: manifest.tags,
-    sources: manifest.sources,
-  }
-}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { PoemGroup, ReciteScopeId, StudyRecord } from '@/lib/types'
+import { PoemGroup, ReciteScopeId } from '@/lib/types'
 import * as storage from '@/lib/storage'
 
 export function useTheme() {
@@ -77,22 +77,6 @@ export function useStudyStats() {
   }, [refresh])
 
   return { stats, refresh }
-}
-
-export function useRecentlyViewed() {
-  const [records, setRecords] = useState<StudyRecord[]>([])
-
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      const next = await storage.getRecentlyViewed()
-      if (!cancelled) setRecords(next)
-    }
-    void load()
-    return () => { cancelled = true }
-  }, [])
-
-  return records
 }
 
 export function useReciteNotebook() {

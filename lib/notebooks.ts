@@ -119,10 +119,6 @@ export function getPoemNotebookDefinitions(): PoemNotebookDefinition[] {
   return NOTEBOOK_DEFINITIONS
 }
 
-export function isKnownPoemNotebookId(id: string): id is PoemNotebookId {
-  return NOTEBOOK_MAP.has(id)
-}
-
 export function normalizePoemNotebookId(
   input: string | null | undefined,
   fallback: PoemNotebookId = DEFAULT_POEM_NOTEBOOK_ID

@@ -82,18 +82,6 @@ export async function queryPoems(query: PoemQuery): Promise<PoemQueryResult> {
   return fetchJSON<PoemQueryResult>(url, signal ? { signal } : undefined)
 }
 
-/** 兼容旧接口：返回第一页 */
-export async function getAllPoemIndex(): Promise<PoemIndex[]> {
-  const res = await queryPoems({ offset: 0, limit: 120 })
-  return res.items
-}
-
-/** 搜索（默认返回第一页） */
-export async function searchPoems(query: string): Promise<PoemIndex[]> {
-  const res = await queryPoems({ q: query, offset: 0, limit: 120 })
-  return res.items
-}
-
 /** 全文搜索（标题/作者/标签/诗句） */
 export async function searchPoemsFullText(params: SearchPoemsFullTextParams): Promise<FullTextSearchResult> {
   const bridge = getDesktopBridge()
@@ -113,24 +101,6 @@ export async function searchPoemsFullText(params: SearchPoemsFullTextParams): Pr
     `/api/poems/fulltext?${usp.toString()}`,
     params.signal ? { signal: params.signal } : undefined
   )
-}
-
-/** 按朝代筛选（默认返回第一页） */
-export async function getPoemsByDynasty(dynasty: string): Promise<PoemIndex[]> {
-  const res = await queryPoems({ dynasty, offset: 0, limit: 120 })
-  return res.items
-}
-
-/** 按作者筛选（默认返回第一页） */
-export async function getPoemsByAuthor(author: string): Promise<PoemIndex[]> {
-  const res = await queryPoems({ author, offset: 0, limit: 120 })
-  return res.items
-}
-
-/** 按标签筛选（默认返回第一页） */
-export async function getPoemsByTag(tag: string): Promise<PoemIndex[]> {
-  const res = await queryPoems({ tag, offset: 0, limit: 120 })
-  return res.items
 }
 
 /** 获取完整诗词 */
