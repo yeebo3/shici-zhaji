@@ -7,6 +7,11 @@ out/
 *.log
 *.tsbuildinfo
 dist-desktop/
+android/.gradle/
+android/local.properties
+android/app/build/
+android/keystore/
+android/release-signing.properties
 
 # Large or sensitive data artifacts
 data/**/*.json

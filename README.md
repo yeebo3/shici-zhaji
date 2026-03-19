@@ -135,6 +135,61 @@ npm run package:win:dir       # 仅输出 win-unpacked
 
 打包产物目录：`dist-desktop/installers/`
 
+### 移动端打包（Capacitor，mini 离线包）
+
+说明：
+
+- 当前移动端仅支持 `mini` 数据档位（已内置校验，非 mini 会直接报错退出）。
+- 移动端静态包会移除无用的 `data/poems-index.db`，减小体积。
+- 查询/全文检索逻辑遵循桌面端现有逻辑（静态离线桥接）。
+
+首次准备（仅一次）：
+
+```bash
+npm install
+npm run mobile:android:add
+npm run mobile:android:signing:prepare
+```
+
+`mobile:android:signing:prepare` 会在 `android/keystore/` 下自动生成本地 release keystore，
+并写入 `android/release-signing.properties`（默认仅本机开发使用）。
+
+生成并同步 mini 离线 Web 资源到 Android 工程：
+
+```bash
+npm run mobile:android:sync:mini
+```
+
+产出 Android 调试包（APK）：
+
+```bash
+npm run mobile:android:apk:debug
+```
+
+调试 APK 输出路径：
+
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+产出 Android 发布包（APK）：
+
+```bash
+npm run mobile:android:apk:release
+```
+
+一键生成并签名发布包（mini）：
+
+```bash
+npm run mobile:android:apk:release:auto
+```
+
+已完成一次 mini 资源构建后，快速重打 release（跳过数据重建）：
+
+```bash
+npm run mobile:android:apk:release:quick
+```
+
 ### 目录结构
 
 ```text

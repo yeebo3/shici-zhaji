@@ -1,0 +1,6 @@
+{
+  "appId": "com.yeebo.shicizhaji",
+  "appName": "诗词札记",
+  "webDir": ".next-static",
+  "bundledWebRuntime": false
+}

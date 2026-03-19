@@ -42,6 +42,8 @@ type DesktopPoemsBridge = {
   loadManifest: () => Promise<Manifest>
 }
 
+const LOCAL_STATIC_DATA_ENABLED = process.env.NEXT_PUBLIC_SHICI_LOCAL_DATA === '1'
+
 function getDesktopBridge(): DesktopPoemsBridge | null {
   if (typeof window === 'undefined') return null
   const withBridge = window as Window & {
@@ -50,6 +52,24 @@ function getDesktopBridge(): DesktopPoemsBridge | null {
   }
   if (withBridge.desktopMeta?.runtime !== 'static') return null
   return withBridge.desktopPoems || null
+}
+
+let localStaticBridgePromise: Promise<DesktopPoemsBridge | null> | null = null
+
+async function getLocalStaticBridge(): Promise<DesktopPoemsBridge | null> {
+  if (!LOCAL_STATIC_DATA_ENABLED || typeof window === 'undefined') return null
+  if (!localStaticBridgePromise) {
+    localStaticBridgePromise = import('./static-poems')
+      .then(mod => mod.createStaticPoemsBridge())
+      .catch(() => null)
+  }
+  return localStaticBridgePromise
+}
+
+async function getRuntimeBridge(): Promise<DesktopPoemsBridge | null> {
+  const desktopBridge = getDesktopBridge()
+  if (desktopBridge) return desktopBridge
+  return getLocalStaticBridge()
 }
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
@@ -73,7 +93,7 @@ function buildQueryString(query: PoemQuery): string {
 /** 查询诗词索引（服务端分页检索） */
 export async function queryPoems(query: PoemQuery): Promise<PoemQueryResult> {
   const { signal, ...rest } = query
-  const bridge = getDesktopBridge()
+  const bridge = await getRuntimeBridge()
   if (bridge) {
     return bridge.queryPoems(rest)
   }
@@ -84,7 +104,7 @@ export async function queryPoems(query: PoemQuery): Promise<PoemQueryResult> {
 
 /** 全文搜索（标题/作者/标签/诗句） */
 export async function searchPoemsFullText(params: SearchPoemsFullTextParams): Promise<FullTextSearchResult> {
-  const bridge = getDesktopBridge()
+  const bridge = await getRuntimeBridge()
   if (bridge) {
     const { signal, ...rest } = params
     void signal
@@ -105,7 +125,7 @@ export async function searchPoemsFullText(params: SearchPoemsFullTextParams): Pr
 
 /** 获取完整诗词 */
 export async function getPoemById(id: string, shardHint?: number): Promise<Poem | null> {
-  const bridge = getDesktopBridge()
+  const bridge = await getRuntimeBridge()
   try {
     if (bridge) return await bridge.getPoemById(id, shardHint)
     const qs = Number.isInteger(shardHint) ? `?shard=${shardHint}` : ''
@@ -117,7 +137,7 @@ export async function getPoemById(id: string, shardHint?: number): Promise<Poem 
 
 /** 获取单个索引 */
 export async function getPoemIndexById(id: string): Promise<PoemIndex | null> {
-  const bridge = getDesktopBridge()
+  const bridge = await getRuntimeBridge()
   try {
     if (bridge) return await bridge.getPoemIndexById(id)
     return await fetchJSON<PoemIndex>(`/api/poems/index/${encodeURIComponent(id)}`)
@@ -129,7 +149,7 @@ export async function getPoemIndexById(id: string): Promise<PoemIndex | null> {
 /** 批量获取索引（用于我的学习页） */
 export async function getPoemIndexByIds(ids: string[]): Promise<PoemIndex[]> {
   if (ids.length === 0) return []
-  const bridge = getDesktopBridge()
+  const bridge = await getRuntimeBridge()
   if (bridge) {
     return bridge.getPoemIndexByIds(ids)
   }
@@ -140,7 +160,7 @@ export async function getPoemIndexByIds(ids: string[]): Promise<PoemIndex[]> {
 
 /** 获取随机诗词索引 */
 export async function getRandomPoemIndex(notebook: PoemNotebookId = 'all'): Promise<PoemIndex> {
-  const bridge = getDesktopBridge()
+  const bridge = await getRuntimeBridge()
   if (bridge) {
     return bridge.getRandomPoemIndex(notebook)
   }
@@ -152,7 +172,7 @@ export async function getRandomPoemIndex(notebook: PoemNotebookId = 'all'): Prom
 
 /** 获取今日诗词索引 */
 export async function getDailyPoemIndex(notebook: PoemNotebookId = 'all'): Promise<PoemIndex> {
-  const bridge = getDesktopBridge()
+  const bridge = await getRuntimeBridge()
   if (bridge) {
     return bridge.getDailyPoemIndex(notebook)
   }
@@ -164,7 +184,7 @@ export async function getDailyPoemIndex(notebook: PoemNotebookId = 'all'): Promi
 
 /** 获取诗词本列表 */
 export async function getPoemNotebooks(): Promise<PoemNotebook[]> {
-  const bridge = getDesktopBridge()
+  const bridge = await getRuntimeBridge()
   if (bridge) {
     return bridge.getPoemNotebooks()
   }
@@ -175,7 +195,7 @@ export async function getPoemNotebooks(): Promise<PoemNotebook[]> {
 /** 加载清单 */
 export async function loadManifest(): Promise<Manifest> {
   if (manifestCache) return manifestCache
-  const bridge = getDesktopBridge()
+  const bridge = await getRuntimeBridge()
   if (bridge) {
     manifestCache = await bridge.loadManifest()
     return manifestCache
