@@ -41,7 +41,7 @@ function resolveSigningConfig() {
     storePassword:
       process.env.SHICI_ANDROID_STORE_PASSWORD
       || existing.storePassword
-      || 'shici-zhaji-release',
+      || '',
     keyAlias:
       process.env.SHICI_ANDROID_KEY_ALIAS
       || existing.keyAlias
@@ -51,7 +51,7 @@ function resolveSigningConfig() {
       || existing.keyPassword
       || process.env.SHICI_ANDROID_STORE_PASSWORD
       || existing.storePassword
-      || 'shici-zhaji-release',
+      || '',
     dname:
       process.env.SHICI_ANDROID_DNAME
       || 'CN=shici-zhaji, OU=Mobile, O=yeebo, L=Shanghai, ST=Shanghai, C=CN',
