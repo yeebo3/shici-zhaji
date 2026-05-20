@@ -20,6 +20,8 @@ export type PoemQueryResult = {
 }
 
 let manifestCache: Manifest | null = null
+const MAX_BATCH_IDS = 200
+const MAX_POEM_ID_CHARS = 128
 
 type SearchPoemsFullTextParams = {
   q: string
@@ -148,14 +150,24 @@ export async function getPoemIndexById(id: string): Promise<PoemIndex | null> {
 
 /** 批量获取索引（用于我的学习页） */
 export async function getPoemIndexByIds(ids: string[]): Promise<PoemIndex[]> {
-  if (ids.length === 0) return []
+  const normalizedIds = [...new Set(ids
+    .map(id => String(id || '').trim().slice(0, MAX_POEM_ID_CHARS))
+    .filter(Boolean)
+  )]
+  if (normalizedIds.length === 0) return []
   const bridge = await getRuntimeBridge()
-  if (bridge) {
-    return bridge.getPoemIndexByIds(ids)
+  const items: PoemIndex[] = []
+  for (let i = 0; i < normalizedIds.length; i += MAX_BATCH_IDS) {
+    const chunk = normalizedIds.slice(i, i + MAX_BATCH_IDS)
+    if (bridge) {
+      items.push(...await bridge.getPoemIndexByIds(chunk))
+      continue
+    }
+    const q = chunk.map(encodeURIComponent).join(',')
+    const res = await fetchJSON<{ items: PoemIndex[] }>(`/api/poems/by-ids?ids=${q}`)
+    items.push(...res.items)
   }
-  const q = ids.map(encodeURIComponent).join(',')
-  const res = await fetchJSON<{ items: PoemIndex[] }>(`/api/poems/by-ids?ids=${q}`)
-  return res.items
+  return items
 }
 
 /** 获取随机诗词索引 */

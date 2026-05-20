@@ -33,12 +33,10 @@ export default function MinePage() {
   useEffect(() => {
     void refreshStudyMeta()
 
-    const onFocus = () => { void refreshStudyMeta() }
-    window.addEventListener('focus', onFocus)
-    window.addEventListener('storage', onFocus)
+    const onStorage = () => { void refreshStudyMeta() }
+    window.addEventListener('storage', onStorage)
     return () => {
-      window.removeEventListener('focus', onFocus)
-      window.removeEventListener('storage', onFocus)
+      window.removeEventListener('storage', onStorage)
     }
   }, [refreshStudyMeta])
 

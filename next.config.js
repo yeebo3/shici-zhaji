@@ -3,6 +3,7 @@ const isDesktopStaticBuild = process.env.NEXT_DESKTOP_STATIC === '1'
 
 const nextConfig = {
   output: isDesktopStaticBuild ? 'export' : 'standalone',
+  outputFileTracingRoot: __dirname,
   distDir: isDesktopStaticBuild ? '.next-static' : '.next',
   images: {
     unoptimized: isDesktopStaticBuild,

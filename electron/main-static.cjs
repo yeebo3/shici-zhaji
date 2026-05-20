@@ -120,6 +120,21 @@ function getContentType(filePath) {
   return CONTENT_TYPES[ext] || 'application/octet-stream'
 }
 
+function getContentSecurityPolicy() {
+  return [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ')
+}
+
 async function startStaticServer(runtimeRoot) {
   const port = STATIC_SERVER_PORT
 
@@ -134,6 +149,8 @@ async function startStaticServer(runtimeRoot) {
     const contentType = getContentType(file)
     const isImmutableAsset = file.includes(`${path.sep}_next${path.sep}static${path.sep}`)
     res.setHeader('Content-Type', contentType)
+    res.setHeader('Content-Security-Policy', getContentSecurityPolicy())
+    res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader(
       'Cache-Control',
       isImmutableAsset ? 'public, max-age=31536000, immutable' : 'no-cache'
@@ -163,171 +180,190 @@ function stopStaticServer() {
   staticServer = null
 }
 
-function registerIpcHandlers(poems, study, aiSettings) {
-  ipcMain.handle('poems:query', async (_event, query) => {
+function isTrustedIpcEvent(event, appOrigin) {
+  const frameUrl = event.senderFrame?.url || event.sender.getURL()
+  try {
+    return new URL(frameUrl).origin === appOrigin
+  } catch {
+    return false
+  }
+}
+
+function registerIpcHandlers(poems, study, aiSettings, appOrigin) {
+  const handle = (channel, handler) => {
+    ipcMain.handle(channel, async (event, ...args) => {
+      if (!isTrustedIpcEvent(event, appOrigin)) {
+        throw new Error('IPC 来源不可信。')
+      }
+      return handler(event, ...args)
+    })
+  }
+
+  handle('poems:query', async (_event, query) => {
     return poems.queryPoemIndex(query || {})
   })
 
-  ipcMain.handle('poems:fulltext', async (_event, params) => {
+  handle('poems:fulltext', async (_event, params) => {
     return poems.searchPoemsFullText(params || {})
   })
 
-  ipcMain.handle('poems:getById', async (_event, payload) => {
+  handle('poems:getById', async (_event, payload) => {
     const id = typeof payload === 'string' ? payload : String((payload && payload.id) || '')
     const shard = payload && Number.isInteger(payload.shard) ? payload.shard : undefined
     return poems.getPoemById(id, shard)
   })
 
-  ipcMain.handle('poems:getIndexById', async (_event, id) => {
+  handle('poems:getIndexById', async (_event, id) => {
     return poems.getPoemIndexById(String(id || ''))
   })
 
-  ipcMain.handle('poems:getIndexByIds', async (_event, ids) => {
+  handle('poems:getIndexByIds', async (_event, ids) => {
     return poems.getPoemIndexByIds(Array.isArray(ids) ? ids : [])
   })
 
-  ipcMain.handle('poems:getRandom', async (_event, notebook) => {
+  handle('poems:getRandom', async (_event, notebook) => {
     return poems.getRandomPoemIndex(notebook)
   })
 
-  ipcMain.handle('poems:getDaily', async (_event, notebook) => {
+  handle('poems:getDaily', async (_event, notebook) => {
     return poems.getDailyPoemIndex(notebook)
   })
 
-  ipcMain.handle('poems:getNotebooks', async () => {
+  handle('poems:getNotebooks', async () => {
     return poems.listPoemNotebooks()
   })
 
-  ipcMain.handle('poems:getManifest', async () => {
+  handle('poems:getManifest', async () => {
     return poems.loadManifest()
   })
 
-  ipcMain.handle('study:bootstrap', async (_event, payload) => {
+  handle('study:bootstrap', async (_event, payload) => {
     return study.bootstrap(payload || {})
   })
 
-  ipcMain.handle('study:getRecords', async () => {
+  handle('study:getRecords', async () => {
     return study.getStudyRecords()
   })
 
-  ipcMain.handle('study:getRecord', async (_event, poemId) => {
+  handle('study:getRecord', async (_event, poemId) => {
     return study.getStudyRecord(String(poemId || ''))
   })
 
-  ipcMain.handle('study:saveRecord', async (_event, record) => {
+  handle('study:saveRecord', async (_event, record) => {
     study.saveStudyRecord(record || {})
     return true
   })
 
-  ipcMain.handle('study:markViewed', async (_event, payload) => {
+  handle('study:markViewed', async (_event, payload) => {
     const poemId = typeof payload === 'string' ? payload : String((payload && payload.poemId) || '')
     const shard = payload && Number.isInteger(payload.shard) ? payload.shard : undefined
     study.markViewed(poemId, shard)
     return true
   })
 
-  ipcMain.handle('study:toggleFavorite', async (_event, poemId) => {
+  handle('study:toggleFavorite', async (_event, poemId) => {
     return study.toggleFavorite(String(poemId || ''))
   })
 
-  ipcMain.handle('study:markMemorized', async (_event, payload) => {
+  handle('study:markMemorized', async (_event, payload) => {
     const poemId = typeof payload === 'string' ? payload : String((payload && payload.poemId) || '')
     const memorized = Boolean(payload && payload.memorized)
     study.markMemorized(poemId, memorized)
     return true
   })
 
-  ipcMain.handle('study:getFavorites', async () => {
+  handle('study:getFavorites', async () => {
     return study.getFavorites()
   })
 
-  ipcMain.handle('study:getMemorized', async () => {
+  handle('study:getMemorized', async () => {
     return study.getMemorized()
   })
 
-  ipcMain.handle('study:getRecentlyViewed', async (_event, limit) => {
+  handle('study:getRecentlyViewed', async (_event, limit) => {
     return study.getRecentlyViewed(limit)
   })
 
-  ipcMain.handle('study:getStats', async () => {
+  handle('study:getStats', async () => {
     return study.getStats()
   })
 
-  ipcMain.handle('study:getReciteNotebook', async () => {
+  handle('study:getReciteNotebook', async () => {
     return study.getReciteNotebook()
   })
 
-  ipcMain.handle('study:setReciteNotebook', async (_event, notebook) => {
+  handle('study:setReciteNotebook', async (_event, notebook) => {
     return study.setReciteNotebook(notebook)
   })
 
-  ipcMain.handle('study:getPoemGroups', async () => {
+  handle('study:getPoemGroups', async () => {
     return study.getPoemGroups()
   })
 
-  ipcMain.handle('study:createPoemGroup', async (_event, name) => {
+  handle('study:createPoemGroup', async (_event, name) => {
     return study.createPoemGroup(name)
   })
 
-  ipcMain.handle('study:renamePoemGroup', async (_event, payload) => {
+  handle('study:renamePoemGroup', async (_event, payload) => {
     const groupId = String((payload && payload.groupId) || '')
     const name = String((payload && payload.name) || '')
     return study.renamePoemGroup(groupId, name)
   })
 
-  ipcMain.handle('study:deletePoemGroup', async (_event, groupId) => {
+  handle('study:deletePoemGroup', async (_event, groupId) => {
     study.deletePoemGroup(String(groupId || ''))
     return true
   })
 
-  ipcMain.handle('study:addPoemToGroup', async (_event, payload) => {
+  handle('study:addPoemToGroup', async (_event, payload) => {
     const groupId = String((payload && payload.groupId) || '')
     const poemId = String((payload && payload.poemId) || '')
     return study.addPoemToGroup(groupId, poemId)
   })
 
-  ipcMain.handle('study:removePoemFromGroup', async (_event, payload) => {
+  handle('study:removePoemFromGroup', async (_event, payload) => {
     const groupId = String((payload && payload.groupId) || '')
     const poemId = String((payload && payload.poemId) || '')
     return study.removePoemFromGroup(groupId, poemId)
   })
 
-  ipcMain.handle('study:togglePoemInGroup', async (_event, payload) => {
+  handle('study:togglePoemInGroup', async (_event, payload) => {
     const groupId = String((payload && payload.groupId) || '')
     const poemId = String((payload && payload.poemId) || '')
     return study.togglePoemInGroup(groupId, poemId)
   })
 
-  ipcMain.handle('study:getPoemGroupById', async (_event, groupId) => {
+  handle('study:getPoemGroupById', async (_event, groupId) => {
     return study.getPoemGroupById(String(groupId || ''))
   })
 
-  ipcMain.handle('study:getGroupsForPoem', async (_event, poemId) => {
+  handle('study:getGroupsForPoem', async (_event, poemId) => {
     return study.getGroupsForPoem(String(poemId || ''))
   })
 
-  ipcMain.handle('ai-settings:getStatus', async () => {
+  handle('ai-settings:getStatus', async () => {
     return aiSettings.getStatus()
   })
 
-  ipcMain.handle('ai-settings:save', async (_event, settings) => {
+  handle('ai-settings:save', async (_event, settings) => {
     return aiSettings.saveSettings(settings || {})
   })
 
-  ipcMain.handle('ai-settings:clear', async () => {
+  handle('ai-settings:clear', async () => {
     return aiSettings.clearSettings()
   })
 
-  ipcMain.handle('ai-settings:test', async (_event, settings) => {
+  handle('ai-settings:test', async (_event, settings) => {
     return aiSettings.testSettings(settings || {})
   })
 
-  ipcMain.handle('ai:generatePoem', async (_event, payload) => {
+  handle('ai:generatePoem', async (_event, payload) => {
     return aiSettings.generatePoem(payload || {})
   })
 }
 
 function createMainWindow(url) {
+  const appOrigin = new URL(url).origin
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 820,
@@ -344,6 +380,15 @@ function createMainWindow(url) {
   })
   mainWindow.on('closed', () => {
     mainWindow = null
+  })
+
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    try {
+      if (new URL(targetUrl).origin !== appOrigin) event.preventDefault()
+    } catch {
+      event.preventDefault()
+    }
   })
 
   mainWindow.loadURL(url)
@@ -373,9 +418,8 @@ app.whenReady().then(async () => {
     poemsService = createPoemsService({ dataDir })
     studyService = createStudyService({ userDataDir: app.getPath('userData') })
     aiSettingsService = createAiSettingsService({ userDataDir: app.getPath('userData') })
-    registerIpcHandlers(poemsService, studyService, aiSettingsService)
-
     const url = await startStaticServer(runtimeRoot)
+    registerIpcHandlers(poemsService, studyService, aiSettingsService, new URL(url).origin)
     createMainWindow(url)
   } catch (error) {
     dialog.showErrorBox('启动失败', error instanceof Error ? error.message : String(error))

@@ -384,7 +384,7 @@ function RecitePageContent() {
   return (
     <div className="min-h-screen">
       <Navbar />
-      <main className="max-w-2xl mx-auto px-4 pt-6 pb-28">
+      <main className={`max-w-2xl mx-auto px-4 pt-6 ${mode === 'line' ? 'pb-28' : 'pb-8'}`}>
         <div className="flex items-center justify-between mb-6">
           <button onClick={() => router.push(entryFrom)} className="btn-ghost flex items-center gap-1 -ml-3">
             <ChevronLeft size={16} /> 返回
@@ -545,9 +545,10 @@ function RecitePageContent() {
         </div>
       </main>
 
-      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-40 w-[min(calc(100%-1rem),42rem)]">
-        <div className="card px-3 py-2">
-          <div className="grid grid-cols-3 gap-2">
+      {mode === 'line' && (
+        <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-40 w-[min(calc(100%-1rem),42rem)]">
+          <div className="card px-3 py-2">
+            <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setCurrentSentence(prev => Math.max(prev - 1, 0))}
               disabled={!canPrevSentence}
@@ -562,12 +563,10 @@ function RecitePageContent() {
             >
               下一句
             </button>
-            <button onClick={handleNext} className="btn-primary text-sm py-2">
-              下一首
-            </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

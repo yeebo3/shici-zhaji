@@ -3,7 +3,9 @@ import { searchPoemsFullText } from '@/lib/server-poems'
 import { normalizePoemNotebookId } from '@/lib/notebooks'
 
 const DEFAULT_LIMIT = 60
-const MAX_LIMIT = 200
+const MAX_LIMIT = 100
+const MAX_QUERY_CHARS = 80
+const MIN_QUERY_CHARS_FOR_TOTAL = 2
 
 function parseNonNegativeInt(value: string | null, fallback: number): number {
   if (!value) return fallback
@@ -16,8 +18,11 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const q = searchParams.get('q')?.trim() || ''
+    if (q.length > MAX_QUERY_CHARS) {
+      return NextResponse.json({ error: '搜索关键词过长。' }, { status: 400 })
+    }
     const withTotalRaw = searchParams.get('withTotal')?.trim()
-    const withTotal = withTotalRaw === '1' || withTotalRaw === 'true'
+    const withTotal = q.length >= MIN_QUERY_CHARS_FOR_TOTAL && (withTotalRaw === '1' || withTotalRaw === 'true')
     const notebook = normalizePoemNotebookId(searchParams.get('notebook'))
     const offset = parseNonNegativeInt(searchParams.get('offset'), 0)
     const reqLimit = parseNonNegativeInt(searchParams.get('limit'), DEFAULT_LIMIT)

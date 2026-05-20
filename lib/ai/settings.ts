@@ -1,4 +1,4 @@
-import { DEFAULT_AI_BASE_URL, DEFAULT_AI_MODEL, normalizeAiBaseUrl, normalizeAiModel, toChatMessages } from '@/lib/ai/compatible'
+import { DEFAULT_AI_BASE_URL, DEFAULT_AI_MODEL, assertSafeAiBaseUrl, normalizeAiBaseUrl, normalizeAiModel, toChatMessages } from '@/lib/ai/compatible'
 import { getDesktopAiSettingsBridge } from '@/lib/ai/desktop-bridge'
 import { requestNativeChatCompletion } from '@/lib/ai/native-client'
 import { AiSettings, AiSettingsInput, AiSettingsStatus, AiTestResult } from '@/lib/ai/types'
@@ -7,6 +7,11 @@ const STORAGE_PREFIX = 'shici-ai_'
 const API_KEY_KEY = 'api-key'
 const BASE_URL_KEY = 'base-url'
 const MODEL_KEY = 'model'
+const NATIVE_STORAGE_READ_TIMEOUT_MS = 4000
+const NATIVE_STORAGE_WRITE_TIMEOUT_MS = 8000
+const FALLBACK_STORAGE_PREFIX = `${STORAGE_PREFIX}fallback_`
+const FALLBACK_WARNING = '安卓安全存储暂不可用，API Key 只会保留在当前应用会话内；重启后需要重新输入。'
+let nativeFallbackApiKey = ''
 
 type ServerStatusPayload = Partial<AiSettingsStatus> & {
   error?: string
@@ -28,7 +33,90 @@ async function getSecureStorage() {
   return SecureStorage
 }
 
-async function getNativeSettings(): Promise<AiSettings> {
+function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+  return Promise.race([
+    operation.finally(() => {
+      if (timeout) clearTimeout(timeout)
+    }),
+    timeoutPromise,
+  ])
+}
+
+function getNativeFallbackItem(key: string): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    return window.localStorage.getItem(`${FALLBACK_STORAGE_PREFIX}${key}`) || ''
+  } catch {
+    return ''
+  }
+}
+
+function takeLegacyNativeFallbackApiKey(): string {
+  const legacy = getNativeFallbackItem(API_KEY_KEY)
+  if (!legacy) return ''
+  setNativeFallbackItem(API_KEY_KEY, '')
+  nativeFallbackApiKey = legacy
+  return legacy
+}
+
+function setNativeFallbackItem(key: string, value: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    if (value) {
+      window.localStorage.setItem(`${FALLBACK_STORAGE_PREFIX}${key}`, value)
+    } else {
+      window.localStorage.removeItem(`${FALLBACK_STORAGE_PREFIX}${key}`)
+    }
+  } catch {
+    // Ignore storage failures; the caller will still surface the current status.
+  }
+}
+
+function getNativeFallbackSettings(): AiSettings {
+  return {
+    apiKey: nativeFallbackApiKey || takeLegacyNativeFallbackApiKey(),
+    baseUrl: normalizeAiBaseUrl(getNativeFallbackItem(BASE_URL_KEY) || DEFAULT_AI_BASE_URL),
+    model: normalizeAiModel(getNativeFallbackItem(MODEL_KEY) || DEFAULT_AI_MODEL),
+  }
+}
+
+function getNativeFallbackStatus(warning = FALLBACK_WARNING): AiSettingsStatus {
+  const settings = getNativeFallbackSettings()
+  return {
+    hasApiKey: Boolean(settings.apiKey),
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    source: 'native',
+    editable: true,
+    secure: false,
+    warning,
+  }
+}
+
+function saveNativeFallbackSettings(input: AiSettingsInput): AiSettingsStatus {
+  const existing = getNativeFallbackSettings()
+  const apiKey = input.apiKey?.trim() || existing.apiKey
+  const baseUrl = assertSafeAiBaseUrl(input.baseUrl)
+  const model = normalizeAiModel(input.model)
+  nativeFallbackApiKey = apiKey
+  setNativeFallbackItem(API_KEY_KEY, '')
+  setNativeFallbackItem(BASE_URL_KEY, baseUrl)
+  setNativeFallbackItem(MODEL_KEY, model)
+  return getNativeFallbackStatus()
+}
+
+function clearNativeFallbackSettings(): void {
+  nativeFallbackApiKey = ''
+  setNativeFallbackItem(API_KEY_KEY, '')
+  setNativeFallbackItem(BASE_URL_KEY, '')
+  setNativeFallbackItem(MODEL_KEY, '')
+}
+
+async function getSecureNativeSettings(): Promise<AiSettings> {
   const storage = await getSecureStorage()
   const [apiKey, baseUrl, model] = await Promise.all([
     storage.getItem(API_KEY_KEY),
@@ -42,38 +130,90 @@ async function getNativeSettings(): Promise<AiSettings> {
   }
 }
 
+async function getNativeSettings(): Promise<AiSettings> {
+  try {
+    const settings = await withTimeout(
+      getSecureNativeSettings(),
+      NATIVE_STORAGE_READ_TIMEOUT_MS,
+      '安卓安全存储读取超时。'
+    )
+    const fallback = getNativeFallbackSettings()
+    return !settings.apiKey && fallback.apiKey ? fallback : settings
+  } catch {
+    return getNativeFallbackSettings()
+  }
+}
+
 async function getNativeStatus(): Promise<AiSettingsStatus> {
-  const settings = await getNativeSettings()
-  return {
-    hasApiKey: Boolean(settings.apiKey),
-    baseUrl: settings.baseUrl,
-    model: settings.model,
-    source: 'native',
-    editable: true,
-    secure: true,
+  try {
+    const settings = await withTimeout(
+      getSecureNativeSettings(),
+      NATIVE_STORAGE_READ_TIMEOUT_MS,
+      '安卓安全存储读取超时。'
+    )
+    const fallback = getNativeFallbackSettings()
+    if (!settings.apiKey && fallback.apiKey) {
+      return getNativeFallbackStatus('当前使用安卓备用本地存储中的 API Key。')
+    }
+    return {
+      hasApiKey: Boolean(settings.apiKey),
+      baseUrl: settings.baseUrl,
+      model: settings.model,
+      source: 'native',
+      editable: true,
+      secure: true,
+    }
+  } catch {
+    return getNativeFallbackStatus()
   }
 }
 
 async function saveNativeSettings(input: AiSettingsInput): Promise<AiSettingsStatus> {
-  const storage = await getSecureStorage()
-  const baseUrl = normalizeAiBaseUrl(input.baseUrl)
+  const baseUrl = assertSafeAiBaseUrl(input.baseUrl)
   const model = normalizeAiModel(input.model)
-  await Promise.all([
-    input.apiKey?.trim() ? storage.setItem(API_KEY_KEY, input.apiKey.trim()) : Promise.resolve(),
-    storage.setItem(BASE_URL_KEY, baseUrl),
-    storage.setItem(MODEL_KEY, model),
-  ])
-  return getNativeStatus()
+  try {
+    const storage = await withTimeout(
+      getSecureStorage(),
+      NATIVE_STORAGE_READ_TIMEOUT_MS,
+      '安卓安全存储读取超时。'
+    )
+    await withTimeout(
+      Promise.all([
+        input.apiKey?.trim() ? storage.setItem(API_KEY_KEY, input.apiKey.trim()) : Promise.resolve(),
+        storage.setItem(BASE_URL_KEY, baseUrl),
+        storage.setItem(MODEL_KEY, model),
+      ]),
+      NATIVE_STORAGE_WRITE_TIMEOUT_MS,
+      '安卓安全存储保存超时。'
+    )
+    clearNativeFallbackSettings()
+    return getNativeStatus()
+  } catch {
+    return saveNativeFallbackSettings({ ...input, baseUrl, model })
+  }
 }
 
 async function clearNativeSettings(): Promise<AiSettingsStatus> {
-  const storage = await getSecureStorage()
-  await Promise.all([
-    storage.removeItem(API_KEY_KEY),
-    storage.removeItem(BASE_URL_KEY),
-    storage.removeItem(MODEL_KEY),
-  ])
-  return getNativeStatus()
+  clearNativeFallbackSettings()
+  try {
+    const storage = await withTimeout(
+      getSecureStorage(),
+      NATIVE_STORAGE_READ_TIMEOUT_MS,
+      '安卓安全存储读取超时。'
+    )
+    await withTimeout(
+      Promise.all([
+        storage.removeItem(API_KEY_KEY),
+        storage.removeItem(BASE_URL_KEY),
+        storage.removeItem(MODEL_KEY),
+      ]),
+      NATIVE_STORAGE_WRITE_TIMEOUT_MS,
+      '安卓安全存储清除超时。'
+    )
+    return getNativeStatus()
+  } catch {
+    return getNativeFallbackStatus('已清除安卓备用本地存储；安全存储未响应，如仍显示已配置，请重启后再清除一次。')
+  }
 }
 
 async function getServerStatus(): Promise<AiSettingsStatus> {
@@ -139,7 +279,7 @@ export async function testAiSettings(input?: Partial<AiSettingsInput>): Promise<
     const existing = await getNativeSettings()
     const settings = {
       apiKey: input?.apiKey?.trim() || existing.apiKey,
-      baseUrl: normalizeAiBaseUrl(input?.baseUrl || existing.baseUrl),
+      baseUrl: assertSafeAiBaseUrl(input?.baseUrl || existing.baseUrl),
       model: normalizeAiModel(input?.model || existing.model),
     }
     if (!settings.apiKey) return { ok: false, message: '请先填写并保存 API Key。' }

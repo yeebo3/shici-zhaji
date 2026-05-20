@@ -5,7 +5,20 @@ const path = require('node:path')
 const DEFAULT_PAGE_LIMIT = 120
 const DEFAULT_FULLTEXT_LIMIT = 60
 const DEFAULT_NOTEBOOK_ID = 'all'
+const MAX_FULLTEXT_QUERY_CHARS = 80
+const MAX_FULLTEXT_LIMIT = 100
+const MIN_QUERY_CHARS_FOR_TOTAL = 2
+const MAX_BATCH_IDS = 200
+const MAX_POEM_ID_CHARS = 128
 const NOTEBOOK_CONFIG_PATH = path.join(__dirname, '..', 'lib', 'poem-notebooks.json')
+
+function normalizePoemIds(ids) {
+  if (!Array.isArray(ids)) return []
+  return [...new Set(ids
+    .map(id => String(id || '').trim().slice(0, MAX_POEM_ID_CHARS))
+    .filter(Boolean)
+  )].slice(0, MAX_BATCH_IDS)
+}
 
 function normalizeStringArray(input) {
   if (!Array.isArray(input)) return undefined
@@ -399,13 +412,14 @@ function createPoemsService({ dataDir, maxCachedShards = 64 }) {
     }
 
     function getPoemIndexByIds(ids) {
-      if (!Array.isArray(ids) || ids.length === 0) return []
-      const placeholders = ids.map(() => '?').join(', ')
+      const normalizedIds = normalizePoemIds(ids)
+      if (normalizedIds.length === 0) return []
+      const placeholders = normalizedIds.map(() => '?').join(', ')
       const rows = db
         .prepare(`SELECT ${selectCols} FROM poems p WHERE p.id IN (${placeholders})`)
-        .all(...ids)
+        .all(...normalizedIds)
       const byId = new Map(rows.map(row => [row.id, toPoemIndexFromSqliteRow(row)]))
-      return ids.map(id => byId.get(id)).filter(Boolean)
+      return normalizedIds.map(id => byId.get(id)).filter(Boolean)
     }
 
     function pickByOffset(opts, pickedOffset) {
@@ -502,12 +516,12 @@ function createPoemsService({ dataDir, maxCachedShards = 64 }) {
 
     function searchPoemsFullText(opts = {}) {
       if (!hasPoemDetails) return null
-      const q = typeof opts.q === 'string' ? opts.q.trim() : ''
+      const q = typeof opts.q === 'string' ? opts.q.trim().slice(0, MAX_FULLTEXT_QUERY_CHARS) : ''
       const offset = Math.max(0, Number.isFinite(opts.offset) ? opts.offset : Number.parseInt(String(opts.offset || 0), 10) || 0)
       const reqLimit = Number.isFinite(opts.limit) ? opts.limit : Number.parseInt(String(opts.limit || DEFAULT_FULLTEXT_LIMIT), 10) || DEFAULT_FULLTEXT_LIMIT
-      const limit = Math.max(1, Math.min(reqLimit, 200))
+      const limit = Math.max(1, Math.min(reqLimit, MAX_FULLTEXT_LIMIT))
       const notebook = normalizeNotebook(opts.notebook)
-      const withTotal = opts.withTotal === true
+      const withTotal = opts.withTotal === true && q.length >= MIN_QUERY_CHARS_FOR_TOTAL
 
       if (!q) {
         return { items: [], total: withTotal ? 0 : null, offset, limit, hasMore: false, nextOffset: offset }
@@ -841,12 +855,12 @@ function createPoemsService({ dataDir, maxCachedShards = 64 }) {
       if (fromSqlite) return fromSqlite
     }
 
-    const q = typeof opts.q === 'string' ? opts.q.trim() : ''
+    const q = typeof opts.q === 'string' ? opts.q.trim().slice(0, MAX_FULLTEXT_QUERY_CHARS) : ''
     const offset = Math.max(0, Number.isFinite(opts.offset) ? opts.offset : Number.parseInt(String(opts.offset || 0), 10) || 0)
     const reqLimit = Number.isFinite(opts.limit) ? opts.limit : Number.parseInt(String(opts.limit || DEFAULT_FULLTEXT_LIMIT), 10) || DEFAULT_FULLTEXT_LIMIT
-    const limit = Math.max(1, Math.min(reqLimit, 200))
+    const limit = Math.max(1, Math.min(reqLimit, MAX_FULLTEXT_LIMIT))
     const notebook = normalizeNotebook(opts.notebook)
-    const withTotal = opts.withTotal === true
+    const withTotal = opts.withTotal === true && q.length >= MIN_QUERY_CHARS_FOR_TOTAL
 
     if (!q) {
       return { items: [], total: withTotal ? 0 : null, offset, limit, hasMore: false, nextOffset: offset }
@@ -950,14 +964,15 @@ function createPoemsService({ dataDir, maxCachedShards = 64 }) {
   }
 
   async function getPoemIndexByIds(ids) {
+    const normalizedIds = normalizePoemIds(ids)
     const sqlite = getSqliteStore()
     if (sqlite) {
-      return sqlite.getPoemIndexByIds(ids)
+      return sqlite.getPoemIndexByIds(normalizedIds)
     }
 
     await loadIndex()
     const out = []
-    for (const id of ids || []) {
+    for (const id of normalizedIds) {
       const found = idToIndexCache.get(id)
       if (found) out.push(found)
     }

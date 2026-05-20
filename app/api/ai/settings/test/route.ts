@@ -7,10 +7,14 @@ import {
   requestCompatibleChatCompletion,
   toChatMessages,
 } from '@/lib/ai/compatible'
+import { guardAiRoute } from '@/lib/ai/server-guard'
 
 export const runtime = 'nodejs'
 
-export async function POST() {
+export async function POST(req: Request) {
+  const blocked = guardAiRoute(req, { rateLimitMax: 6 })
+  if (blocked) return blocked
+
   const apiKey = process.env.AI_API_KEY?.trim()
   if (!apiKey) {
     return NextResponse.json(

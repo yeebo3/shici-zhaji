@@ -4,6 +4,9 @@
   "description": "本地离线古诗词学习工具",
   "author": "yeebo",
   "private": true,
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev",
@@ -42,7 +45,10 @@
     "mobile:android:apk:release:quick": "npx cap copy android && npm run mobile:android:signing:prepare && npm run mobile:android:apk:release",
     "mobile:android:apk:release:full:auto": "npm run mobile:android:sync:full && npm run mobile:android:signing:prepare && npm run mobile:android:apk:release",
     "mobile:android:apk:release:auto": "npm run mobile:android:sync:mini && npm run mobile:android:signing:prepare && npm run mobile:android:apk:release",
-    "lint": "next lint",
+    "lint": "npm run typecheck",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build",
+    "audit:prod": "npm audit --omit=dev",
     "generate": "npm run generate:full",
     "generate:full": "node scripts/generate-data.js --profile full && npm run build:index:sqlite",
     "generate:mini": "node scripts/generate-data.js --profile mini && npm run build:index:sqlite",
@@ -52,27 +58,30 @@
     "convert:vmijunv": "node scripts/convert-vmijunv-data.js"
   },
   "dependencies": {
-    "@aparajita/capacitor-secure-storage": "^6.0.1",
-    "@capacitor/app": "^6.0.3",
-    "@capacitor/core": "^6.1.2",
+    "@aparajita/capacitor-secure-storage": "^7.1.6",
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/core": "^7.6.2",
     "framer-motion": "^11.18.2",
     "lucide-react": "^0.344.0",
-    "next": "14.1.0",
+    "next": "^15.5.15",
     "opencc-js": "^1.0.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@capacitor/android": "^6.1.2",
-    "@capacitor/cli": "^6.1.2",
+    "@capacitor/android": "^7.6.2",
+    "@capacitor/cli": "^7.6.2",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "autoprefixer": "^10.4.17",
-    "electron": "^30.5.1",
-    "electron-builder": "^24.13.3",
-    "postcss": "^8.4.33",
+    "electron": "^41.5.0",
+    "electron-builder": "^26.8.1",
+    "postcss": "8.5.10",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "postcss": "8.5.10"
   }
 }

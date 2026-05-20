@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, KeyRound, Loader2, Trash2, Wifi } from 'lucide-react'
 import {
   clearAiSettings,
@@ -11,6 +11,63 @@ import {
 import { AiSettingsStatus } from '@/lib/ai/types'
 
 const inputClass = 'w-full px-3 py-2 rounded-md bg-cream dark:bg-night-card border border-stone/20 dark:border-stone/10 text-sm'
+const DRAFT_STORAGE_KEY = 'shici-ai-settings-draft'
+
+type AiSettingsDraft = {
+  apiKey: string
+  baseUrl: string
+  model: string
+  dirty: boolean
+}
+
+const emptyDraft: AiSettingsDraft = {
+  apiKey: '',
+  baseUrl: '',
+  model: '',
+  dirty: false,
+}
+
+let memoryDraft: AiSettingsDraft = emptyDraft
+
+function readDraft(): AiSettingsDraft {
+  if (memoryDraft.dirty) return memoryDraft
+  if (typeof window === 'undefined') return memoryDraft
+  try {
+    const value = window.sessionStorage.getItem(DRAFT_STORAGE_KEY)
+    if (!value) return memoryDraft
+    const parsed = JSON.parse(value) as Partial<AiSettingsDraft>
+    return {
+      apiKey: '',
+      baseUrl: typeof parsed.baseUrl === 'string' ? parsed.baseUrl : '',
+      model: typeof parsed.model === 'string' ? parsed.model : '',
+      dirty: Boolean(parsed.dirty),
+    }
+  } catch {
+    return memoryDraft
+  }
+}
+
+function writeDraft(draft: AiSettingsDraft): void {
+  memoryDraft = draft
+  if (typeof window === 'undefined') return
+  try {
+    if (draft.dirty) {
+      window.sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({
+        baseUrl: draft.baseUrl,
+        model: draft.model,
+        dirty: draft.dirty,
+      }))
+    } else {
+      window.sessionStorage.removeItem(DRAFT_STORAGE_KEY)
+    }
+  } catch {
+    // Keep the in-memory draft even if session storage is unavailable.
+  }
+}
+
+function clearDraft(): void {
+  writeDraft(emptyDraft)
+}
 
 function sourceLabel(source: AiSettingsStatus['source']): string {
   if (source === 'desktop') return '桌面安全存储'
@@ -20,15 +77,17 @@ function sourceLabel(source: AiSettingsStatus['source']): string {
 }
 
 export default function AiSettingsPanel() {
+  const initialDraft = readDraft()
   const [status, setStatus] = useState<AiSettingsStatus | null>(null)
-  const [apiKey, setApiKey] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [model, setModel] = useState('')
+  const [apiKey, setApiKey] = useState(initialDraft.apiKey)
+  const [baseUrl, setBaseUrl] = useState(initialDraft.baseUrl)
+  const [model, setModel] = useState(initialDraft.model)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const draftDirtyRef = useRef(initialDraft.dirty)
 
   const loadStatus = async () => {
     setLoading(true)
@@ -36,8 +95,15 @@ export default function AiSettingsPanel() {
     try {
       const next = await getAiSettingsStatus()
       setStatus(next)
-      setBaseUrl(next.baseUrl)
-      setModel(next.model)
+      const draft = readDraft()
+      if (draft.dirty || draftDirtyRef.current) {
+        setApiKey(draft.apiKey)
+        setBaseUrl(draft.baseUrl || next.baseUrl)
+        setModel(draft.model || next.model)
+      } else {
+        setBaseUrl(next.baseUrl)
+        setModel(next.model)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'AI 设置加载失败。')
     } finally {
@@ -48,6 +114,18 @@ export default function AiSettingsPanel() {
   useEffect(() => {
     void loadStatus()
   }, [])
+
+  const persistDraft = (next: Partial<AiSettingsDraft>) => {
+    const draft = {
+      apiKey,
+      baseUrl,
+      model,
+      ...next,
+      dirty: true,
+    }
+    draftDirtyRef.current = true
+    writeDraft(draft)
+  }
 
   const handleSave = async () => {
     if (!status?.editable) return
@@ -60,6 +138,8 @@ export default function AiSettingsPanel() {
         baseUrl,
         model,
       })
+      clearDraft()
+      draftDirtyRef.current = false
       setStatus(next)
       setBaseUrl(next.baseUrl)
       setModel(next.model)
@@ -80,6 +160,8 @@ export default function AiSettingsPanel() {
     setError('')
     try {
       const next = await clearAiSettings()
+      clearDraft()
+      draftDirtyRef.current = false
       setStatus(next)
       setBaseUrl(next.baseUrl)
       setModel(next.model)
@@ -156,7 +238,11 @@ export default function AiSettingsPanel() {
           <span className="block text-xs text-ash mb-1">API Key</span>
           <input
             value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
+            onChange={e => {
+              const next = e.target.value
+              setApiKey(next)
+              persistDraft({ apiKey: next })
+            }}
             disabled={!editable}
             type="password"
             autoComplete="off"
@@ -170,7 +256,11 @@ export default function AiSettingsPanel() {
             <span className="block text-xs text-ash mb-1">Base URL</span>
             <input
               value={baseUrl}
-              onChange={e => setBaseUrl(e.target.value)}
+              onChange={e => {
+                const next = e.target.value
+                setBaseUrl(next)
+                persistDraft({ baseUrl: next })
+              }}
               disabled={!editable}
               className={`${inputClass} ${editable ? '' : 'opacity-60 cursor-not-allowed'}`}
             />
@@ -179,7 +269,11 @@ export default function AiSettingsPanel() {
             <span className="block text-xs text-ash mb-1">Model</span>
             <input
               value={model}
-              onChange={e => setModel(e.target.value)}
+              onChange={e => {
+                const next = e.target.value
+                setModel(next)
+                persistDraft({ model: next })
+              }}
               disabled={!editable}
               className={`${inputClass} ${editable ? '' : 'opacity-60 cursor-not-allowed'}`}
             />

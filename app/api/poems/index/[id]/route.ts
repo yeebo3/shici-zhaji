@@ -3,10 +3,11 @@ import { getPoemIndexById } from '@/lib/server-poems'
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = decodeURIComponent(params.id)
+    const { id: rawId } = await params
+    const id = decodeURIComponent(rawId)
     const item = await getPoemIndexById(id)
     if (!item) {
       return NextResponse.json({ error: 'not found' }, { status: 404 })

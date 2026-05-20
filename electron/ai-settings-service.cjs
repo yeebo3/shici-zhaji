@@ -11,6 +11,35 @@ function normalizeBaseUrl(value) {
   return trimmed.replace(/\/+$/, '')
 }
 
+function isLoopbackHost(hostname) {
+  return (
+    hostname === 'localhost'
+    || hostname === '127.0.0.1'
+    || hostname.startsWith('127.')
+    || hostname === '::1'
+    || hostname === '[::1]'
+  )
+}
+
+function assertSafeBaseUrl(value) {
+  const normalized = normalizeBaseUrl(value)
+  let parsed
+  try {
+    parsed = new URL(normalized)
+  } catch {
+    throw new Error('Base URL 格式不正确，请填写完整的 https:// 地址。')
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('Base URL 不能包含用户名或密码。')
+  }
+  if (parsed.search || parsed.hash) {
+    throw new Error('Base URL 不能包含查询参数或片段。')
+  }
+  if (parsed.protocol === 'https:') return normalized
+  if (parsed.protocol === 'http:' && isLoopbackHost(parsed.hostname)) return normalized
+  throw new Error('Base URL 必须使用 https://，本机 localhost 调试地址除外。')
+}
+
 function normalizeModel(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_AI_MODEL
 }
@@ -73,7 +102,7 @@ function createAiSettingsService({ userDataDir }) {
   function persist() {
     safeWriteJson(settingsPath, {
       encryptedApiKey: state.encryptedApiKey || '',
-      baseUrl: normalizeBaseUrl(state.baseUrl),
+      baseUrl: assertSafeBaseUrl(state.baseUrl),
       model: normalizeModel(state.model),
     })
   }
@@ -114,7 +143,7 @@ function createAiSettingsService({ userDataDir }) {
     }
     const nextKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : ''
     if (nextKey) state.encryptedApiKey = encryptApiKey(nextKey)
-    state.baseUrl = normalizeBaseUrl(input.baseUrl)
+    state.baseUrl = assertSafeBaseUrl(input.baseUrl)
     state.model = normalizeModel(input.model)
     persist()
     return getStatus()
@@ -134,7 +163,7 @@ function createAiSettingsService({ userDataDir }) {
     if (!apiKey) throw new Error('请先到“我的”页配置 API Key。')
     return {
       apiKey,
-      baseUrl: normalizeBaseUrl(override.baseUrl || state.baseUrl),
+      baseUrl: assertSafeBaseUrl(override.baseUrl || state.baseUrl),
       model: normalizeModel(override.model || state.model),
     }
   }
@@ -143,7 +172,8 @@ function createAiSettingsService({ userDataDir }) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
     try {
-      const res = await fetch(`${normalizeBaseUrl(settings.baseUrl)}/chat/completions`, {
+      const baseUrl = assertSafeBaseUrl(settings.baseUrl)
+      const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${settings.apiKey}`,

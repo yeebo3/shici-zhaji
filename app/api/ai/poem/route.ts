@@ -8,7 +8,9 @@ import {
   toChatMessages,
 } from '@/lib/ai/compatible'
 import { generatePrompt } from '@/lib/ai/prompts'
+import { guardAiRoute, readLimitedJsonBody } from '@/lib/ai/server-guard'
 import { AiPoemRequest, AiPoemTask } from '@/lib/ai/types'
+import { getPoemById } from '@/lib/server-poems'
 
 export const runtime = 'nodejs'
 
@@ -16,14 +18,45 @@ function isTask(input: unknown): input is AiPoemTask {
   return input === 'analysis' || input === 'annotation' || input === 'recitation'
 }
 
-function normalizeRequest(input: unknown): AiPoemRequest | null {
+function asLimitedString(input: unknown, max = 96): string {
+  return typeof input === 'string' ? input.slice(0, max) : ''
+}
+
+function normalizeStudyRecord(input: unknown): AiPoemRequest['studyRecord'] {
+  if (!input || typeof input !== 'object') return null
+  const raw = input as Record<string, unknown>
+  const reviewCount = typeof raw.reviewCount === 'number' && Number.isFinite(raw.reviewCount)
+    ? Math.max(0, Math.min(999, Math.floor(raw.reviewCount)))
+    : 0
+  return {
+    viewedAt: asLimitedString(raw.viewedAt, 64),
+    memorized: raw.memorized === true,
+    reviewCount,
+    favorite: raw.favorite === true,
+  }
+}
+
+function normalizeRecite(input: unknown): AiPoemRequest['recite'] {
+  if (!input || typeof input !== 'object') return undefined
+  const raw = input as Record<string, unknown>
+  const mode = raw.mode === 'read' || raw.mode === 'mask' || raw.mode === 'line' || raw.mode === 'test'
+    ? raw.mode
+    : undefined
+  return {
+    mode,
+    scope: asLimitedString(raw.scope, 128),
+    scopeName: asLimitedString(raw.scopeName, 128),
+  }
+}
+
+async function normalizeRequest(input: unknown): Promise<AiPoemRequest | null> {
   if (!input || typeof input !== 'object') return null
   const raw = input as Partial<AiPoemRequest>
   if (!isTask(raw.task)) return null
-  const poem = raw.poem
-  if (!poem || typeof poem !== 'object') return null
-  if (!poem.id || !poem.title || !poem.author || !poem.dynasty) return null
-  if (!Array.isArray(poem.content)) return null
+  const poemId = raw.poem && typeof raw.poem === 'object' ? String(raw.poem.id || '') : ''
+  if (!poemId) return null
+  const poem = await getPoemById(poemId)
+  if (!poem) return null
 
   return {
     task: raw.task,
@@ -38,12 +71,15 @@ function normalizeRequest(input: unknown): AiPoemRequest | null {
       appreciation: typeof poem.appreciation === 'string' ? poem.appreciation : '',
       tags: Array.isArray(poem.tags) ? poem.tags.map(String) : [],
     },
-    studyRecord: raw.studyRecord || null,
-    recite: raw.recite || undefined,
+    studyRecord: normalizeStudyRecord(raw.studyRecord),
+    recite: normalizeRecite(raw.recite),
   }
 }
 
 export async function POST(req: Request) {
+  const blocked = guardAiRoute(req)
+  if (blocked) return blocked
+
   const apiKey = process.env.AI_API_KEY?.trim()
   if (!apiKey) {
     return NextResponse.json(
@@ -52,14 +88,10 @@ export async function POST(req: Request) {
     )
   }
 
-  let body: unknown
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: '请求内容格式不正确。' }, { status: 400 })
-  }
+  const body = await readLimitedJsonBody(req)
+  if (!body.ok) return body.response
 
-  const input = normalizeRequest(body)
+  const input = await normalizeRequest(body.value)
   if (!input) {
     return NextResponse.json({ error: '缺少生成所需的诗词信息。' }, { status: 400 })
   }

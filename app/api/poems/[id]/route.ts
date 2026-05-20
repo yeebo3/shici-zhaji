@@ -3,10 +3,11 @@ import { getPoemById } from '@/lib/server-poems'
 
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = decodeURIComponent(params.id)
+    const { id: rawId } = await params
+    const id = decodeURIComponent(rawId)
     const url = new URL(req.url)
     const rawShard = url.searchParams.get('shard')
     const shardHint = rawShard !== null ? Number.parseInt(rawShard, 10) : undefined

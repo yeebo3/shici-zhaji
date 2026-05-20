@@ -1,9 +1,9 @@
 import {
   AI_REQUEST_TIMEOUT_MS,
+  assertSafeAiBaseUrl,
   buildChatCompletionBody,
   extractAiText,
   getProviderError,
-  normalizeAiBaseUrl,
   normalizeAiModel,
   parseCompatiblePayload,
 } from '@/lib/ai/compatible'
@@ -15,8 +15,9 @@ export async function requestNativeChatCompletion(
   maxTokens = 900
 ): Promise<AiPoemResponse> {
   const { CapacitorHttp } = await import('@capacitor/core')
+  const baseUrl = assertSafeAiBaseUrl(settings.baseUrl)
   const response = await CapacitorHttp.post({
-    url: `${normalizeAiBaseUrl(settings.baseUrl)}/chat/completions`,
+    url: `${baseUrl}/chat/completions`,
     headers: {
       Authorization: `Bearer ${settings.apiKey}`,
       'Content-Type': 'application/json',

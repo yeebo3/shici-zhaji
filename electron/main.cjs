@@ -100,6 +100,7 @@ function stopNextServer() {
 }
 
 function createMainWindow(url) {
+  const appOrigin = new URL(url).origin
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 820,
@@ -117,6 +118,15 @@ function createMainWindow(url) {
   mainWindow.once('ready-to-show', () => mainWindow && mainWindow.show())
   mainWindow.on('closed', () => {
     mainWindow = null
+  })
+
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    try {
+      if (new URL(targetUrl).origin !== appOrigin) event.preventDefault()
+    } catch {
+      event.preventDefault()
+    }
   })
 
   mainWindow.loadURL(url)

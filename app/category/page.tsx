@@ -26,6 +26,8 @@ const filterTabs: { key: FilterType; label: string; icon: React.ElementType }[] 
 const PAGE_SIZE = 120
 const MAX_FILTER_CHIPS = 500
 const COLLAPSED_CHIPS = 48
+const MIN_SEARCH_QUERY_LENGTH = 2
+const MAX_SEARCH_QUERY_LENGTH = 80
 
 function toSearchHit(poem: PoemIndex): PoemSearchHit {
   return {
@@ -187,8 +189,9 @@ export default function CategoryPage() {
   }, [chipItems, showAllFilters])
 
   const handleSearch = useCallback((q: string) => {
-    setSearchQuery(q)
-    if (q) setSelected(null)
+    const next = q.trim().slice(0, MAX_SEARCH_QUERY_LENGTH)
+    setSearchQuery(next)
+    if (next) setSelected(null)
   }, [])
 
   const handleFilterChange = (type: FilterType) => {
@@ -218,7 +221,12 @@ export default function CategoryPage() {
         <h1 className="font-serif text-xl font-semibold mb-6">分类浏览</h1>
 
         <div className="mb-6">
-          <SearchBar onSearch={handleSearch} placeholder="搜索诗名、作者、诗句..." />
+          <SearchBar
+            onSearch={handleSearch}
+            placeholder="搜索诗名、作者、诗句..."
+            minLength={MIN_SEARCH_QUERY_LENGTH}
+            maxLength={MAX_SEARCH_QUERY_LENGTH}
+          />
         </div>
 
         {!searchQuery && (

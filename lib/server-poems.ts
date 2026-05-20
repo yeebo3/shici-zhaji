@@ -22,6 +22,11 @@ const INDEX_PATH = path.join(DATA_DIR, 'index.json')
 const MANIFEST_PATH = path.join(DATA_DIR, 'manifest.json')
 const SHARDS_DIR = path.join(DATA_DIR, 'shards')
 const MAX_CACHED_SHARDS = 64
+const MAX_FULLTEXT_QUERY_CHARS = 80
+const MAX_FULLTEXT_LIMIT = 100
+const MIN_QUERY_CHARS_FOR_TOTAL = 2
+const MAX_BATCH_IDS = 200
+const MAX_POEM_ID_CHARS = 128
 
 let indexCache: PoemIndex[] | null = null
 let manifestCache: Manifest | null = null
@@ -326,11 +331,11 @@ export async function searchPoemsFullText(opts: {
   notebook?: PoemNotebookId
   withTotal?: boolean
 }): Promise<FullTextSearchResult> {
-  const q = opts.q.trim()
+  const q = opts.q.trim().slice(0, MAX_FULLTEXT_QUERY_CHARS)
   const offset = Math.max(0, opts.offset)
-  const limit = Math.max(1, opts.limit)
+  const limit = Math.max(1, Math.min(opts.limit, MAX_FULLTEXT_LIMIT))
   const notebook = normalizePoemNotebookId(opts.notebook)
-  const withTotal = opts.withTotal === true
+  const withTotal = opts.withTotal === true && q.length >= MIN_QUERY_CHARS_FOR_TOTAL
 
   if (!q) {
     return { items: [], total: withTotal ? 0 : null, offset, limit, hasMore: false, nextOffset: offset }
@@ -421,8 +426,12 @@ export async function getPoemIndexById(id: string): Promise<PoemIndex | null> {
 
 export async function getPoemIndexByIds(ids: string[]): Promise<PoemIndex[]> {
   await loadIndex()
+  const normalizedIds = [...new Set(ids
+    .map(id => String(id || '').trim().slice(0, MAX_POEM_ID_CHARS))
+    .filter(Boolean)
+  )].slice(0, MAX_BATCH_IDS)
   const out: PoemIndex[] = []
-  for (const id of ids) {
+  for (const id of normalizedIds) {
     const found = idToIndexCache?.get(id)
     if (found) out.push(found)
   }

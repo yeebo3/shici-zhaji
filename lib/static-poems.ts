@@ -398,11 +398,11 @@ export function createStaticPoemsBridge(baseDataDir = '/data'): StaticPoemsBridg
   }
 
   async function searchPoemsFullText(opts: SearchOptions): Promise<FullTextSearchResult> {
-    const q = opts.q.trim()
+    const q = opts.q.trim().slice(0, 80)
     const offset = Math.max(0, opts.offset)
-    const limit = Math.max(1, opts.limit)
+    const limit = Math.max(1, Math.min(opts.limit, 100))
     const notebook = normalizePoemNotebookId(opts.notebook)
-    const withTotal = opts.withTotal === true
+    const withTotal = opts.withTotal === true && q.length >= 2
 
     if (!q) {
       return { items: [], total: withTotal ? 0 : null, offset, limit, hasMore: false, nextOffset: offset }
@@ -493,8 +493,12 @@ export function createStaticPoemsBridge(baseDataDir = '/data'): StaticPoemsBridg
 
   async function getPoemIndexByIds(ids: string[]): Promise<PoemIndex[]> {
     await loadIndex()
+    const normalizedIds = [...new Set(ids
+      .map(id => String(id || '').trim().slice(0, 128))
+      .filter(Boolean)
+    )].slice(0, 200)
     const out: PoemIndex[] = []
-    for (const id of ids) {
+    for (const id of normalizedIds) {
       const found = idToIndexCache?.get(id)
       if (found) out.push(found)
     }
