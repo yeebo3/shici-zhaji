@@ -54,7 +54,7 @@ export type StudyRecord = {
 
 export type FontSize = 'small' | 'medium' | 'large'
 
-export type ViewMode = 'original' | 'annotated' | 'appreciation' | 'semantic' | 'all'
+export type ViewMode = 'original' | 'annotated' | 'appreciation' | 'extension' | 'all'
 
 export type ReciteMode = 'read' | 'mask' | 'line' | 'test'
 

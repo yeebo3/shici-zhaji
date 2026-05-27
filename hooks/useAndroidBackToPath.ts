@@ -27,7 +27,7 @@ export function useAndroidBackToPath(target: string | null) {
         if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return
 
         const listener = await App.addListener('backButton', () => {
-          router.push(target)
+          router.replace(target)
         })
 
         if (cancelled) {

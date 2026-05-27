@@ -56,6 +56,23 @@ function parseShardHint(raw: string | null): number | undefined {
   return parsed
 }
 
+function getSafeBackTarget(raw: string | null, currentPathname: string, currentPoemId: string): string | null {
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return null
+
+  try {
+    const url = new URL(raw, 'https://shici.local')
+    if (url.origin !== 'https://shici.local') return null
+    if (url.pathname === currentPathname) {
+      if (url.pathname !== '/poem') return null
+      const targetPoemId = decodePoemId(url.searchParams.get('id'))
+      if (!targetPoemId || targetPoemId === currentPoemId) return null
+    }
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return null
+  }
+}
+
 function PoemPageFallback() {
   return <div className="min-h-screen"><Navbar /><Loading /></div>
 }
@@ -67,7 +84,7 @@ function PoemDetailPageContent() {
   const id = decodePoemId(searchParams.get('id'))
   const shardHint = parseShardHint(searchParams.get('s'))
   const from = searchParams.get('from')
-  const backTarget = from && from.startsWith('/') && from !== pathname ? from : null
+  const backTarget = getSafeBackTarget(from, pathname, id)
   const [poem, setPoem] = useState<Poem | null>(null)
   const [studyRecord, setStudyRecord] = useState<StudyRecord | null>(null)
   const [loading, setLoading] = useState(true)
@@ -155,21 +172,21 @@ function PoemDetailPageContent() {
       .slice(0, 3)
   }, [semanticTags])
 
-  const semanticViewAvailable = semanticEnabled && (surfaceSemanticTags.length > 0 || semanticRecommendations.length > 0)
+  const extensionViewAvailable = semanticEnabled && semanticRecommendations.length > 0
   const availableViewModes = useMemo(() => {
-    if (!semanticViewAvailable) return baseViewModes
+    if (!extensionViewAvailable) return baseViewModes
     return [
       ...baseViewModes.slice(0, 3),
-      { key: 'semantic' as ViewMode, label: '语义', icon: Compass },
+      { key: 'extension' as ViewMode, label: '延伸', icon: Compass },
       baseViewModes[3],
     ]
-  }, [semanticViewAvailable])
+  }, [extensionViewAvailable])
 
   useEffect(() => {
-    if (viewMode === 'semantic' && !semanticViewAvailable) {
+    if (viewMode === 'extension' && !extensionViewAvailable) {
       setViewMode('original')
     }
-  }, [semanticViewAvailable, viewMode])
+  }, [extensionViewAvailable, viewMode])
 
   useEffect(() => {
     async function load() {
@@ -229,6 +246,8 @@ function PoemDetailPageContent() {
   }
 
   const currentPoemPath = `/poem?id=${encodeURIComponent(poem.id)}${shardHint !== undefined ? `&s=${shardHint}` : ''}`
+  const currentPoemPathWithReturn = `${currentPoemPath}${backTarget ? `&from=${encodeURIComponent(backTarget)}` : ''}`
+  const recommendationFrom = backTarget ? currentPoemPathWithReturn : '/'
   const reciteFrom = backTarget || currentPoemPath
 
   return (
@@ -237,7 +256,7 @@ function PoemDetailPageContent() {
       <main className="max-w-2xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
           <button
-            onClick={() => backTarget ? router.push(backTarget) : router.back()}
+            onClick={() => backTarget ? router.replace(backTarget) : router.back()}
             className="btn-ghost flex items-center gap-1 -ml-3"
           >
             <ChevronLeft size={16} />
@@ -379,9 +398,9 @@ function PoemDetailPageContent() {
           </div>
         )}
 
-        {viewMode === 'semantic' && semanticViewAvailable && (
+        {viewMode === 'extension' && extensionViewAvailable && (
           <section className="mb-8">
-            <h3 className="text-xs text-ash tracking-widest uppercase mb-3 text-center">语义</h3>
+            <h3 className="text-xs text-ash tracking-widest uppercase mb-3 text-center">续学建议</h3>
             <div className="card p-5">
               {semanticRecommendations.length > 0 ? (
                 <div className="divide-y divide-stone/15 dark:divide-white/10">
@@ -391,7 +410,7 @@ function PoemDetailPageContent() {
                     return (
                       <Link
                         key={item.poem_id}
-                        href={`/poem?id=${encodeURIComponent(item.poem_id)}&s=${meta.shard}&from=${encodeURIComponent(currentPoemPath)}`}
+                        href={`/poem?id=${encodeURIComponent(item.poem_id)}&s=${meta.shard}&from=${encodeURIComponent(recommendationFrom)}`}
                         className="block py-3 first:pt-0 last:pb-0"
                       >
                         <p className="font-serif text-base mb-1">{meta.title}</p>
