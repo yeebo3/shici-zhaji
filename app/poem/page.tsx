@@ -9,7 +9,7 @@ import GroupPicker from '@/components/GroupPicker'
 import AiAssistBlock from '@/components/AiAssistBlock'
 import { getPoemById, getPoemIndexById, getPoemIndexByIds } from '@/lib/poems'
 import { loadPoemSemanticRecommendations, loadPoemSemanticTags, loadSemanticFeatures } from '@/lib/semantic'
-import { SemanticRecommendation, SemanticTagRecord, SemanticTagType } from '@/lib/semantic-types'
+import { SemanticRecommendation, SemanticTagRecord } from '@/lib/semantic-types'
 import { Poem, StudyRecord, ViewMode } from '@/lib/types'
 import { getStudyRecord, markViewed } from '@/lib/storage'
 import { useFavorite, useFontSize } from '@/hooks/useStudy'
@@ -24,9 +24,10 @@ import {
   Sparkles,
   Layers,
   FolderTree,
+  Compass,
 } from 'lucide-react'
 
-const viewModes: { key: ViewMode; label: string; icon: React.ElementType }[] = [
+const baseViewModes: { key: ViewMode; label: string; icon: React.ElementType }[] = [
   { key: 'original', label: '原文', icon: Eye },
   { key: 'annotated', label: '注释', icon: FileText },
   { key: 'appreciation', label: '赏析', icon: Sparkles },
@@ -38,15 +39,6 @@ const fontSizes = [
   { key: 'medium', label: '中' },
   { key: 'large', label: '大' },
 ]
-
-const semanticTypeLabel: Record<SemanticTagType, string> = {
-  topic: '题材',
-  emotion: '情绪',
-  image: '意象',
-  style: '风格',
-  difficulty: '难度',
-  form: '体式',
-}
 
 function decodePoemId(rawId: string | null): string {
   if (!rawId) return ''
@@ -149,25 +141,35 @@ function PoemDetailPageContent() {
     }
   }, [poem?.id, shardHint])
 
-  const groupedSemanticTags = useMemo(() => {
-    const map = new Map<SemanticTagType, SemanticTagRecord[]>()
-    for (const tag of semanticTags) {
-      const group = map.get(tag.tag_type) || []
-      group.push(tag)
-      map.set(tag.tag_type, group)
-    }
-
-    return (Object.keys(semanticTypeLabel) as SemanticTagType[])
-      .filter(type => map.has(type))
-      .map(type => ({
-        type,
-        label: semanticTypeLabel[type],
-        tags: (map.get(type) || [])
-          .slice()
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 6),
-      }))
+  const surfaceSemanticTags = useMemo(() => {
+    const seen = new Set<string>()
+    return semanticTags
+      .filter(tag => tag.tag_type === 'emotion' || tag.tag_type === 'style')
+      .slice()
+      .sort((a, b) => b.score - a.score)
+      .filter(tag => {
+        if (seen.has(tag.tag_name)) return false
+        seen.add(tag.tag_name)
+        return true
+      })
+      .slice(0, 3)
   }, [semanticTags])
+
+  const semanticViewAvailable = semanticEnabled && (surfaceSemanticTags.length > 0 || semanticRecommendations.length > 0)
+  const availableViewModes = useMemo(() => {
+    if (!semanticViewAvailable) return baseViewModes
+    return [
+      ...baseViewModes.slice(0, 3),
+      { key: 'semantic' as ViewMode, label: '语义', icon: Compass },
+      baseViewModes[3],
+    ]
+  }, [semanticViewAvailable])
+
+  useEffect(() => {
+    if (viewMode === 'semantic' && !semanticViewAvailable) {
+      setViewMode('original')
+    }
+  }, [semanticViewAvailable, viewMode])
 
   useEffect(() => {
     async function load() {
@@ -296,7 +298,7 @@ function PoemDetailPageContent() {
         </div>
 
         <div className="flex justify-center gap-1 mb-8">
-          {viewModes.map(({ key, label, icon: Icon }) => (
+          {availableViewModes.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => setViewMode(key)}
@@ -369,51 +371,39 @@ function PoemDetailPageContent() {
           </section>
         )}
 
-        <div className="flex justify-center gap-2 mb-8">
-          {poem.tags.map(tag => (
-            <span key={tag} className="tag">{tag}</span>
-          ))}
-        </div>
-
-        {semanticEnabled && groupedSemanticTags.length > 0 && (
-          <section className="mb-8">
-            <h3 className="text-xs text-ash tracking-widest uppercase mb-3 text-center">语义标签</h3>
-            <div className="card p-4 space-y-3">
-              {groupedSemanticTags.map(group => (
-                <div key={group.type} className="flex flex-wrap items-start gap-2">
-                  <span className="text-xs text-ash mt-1 min-w-10">{group.label}</span>
-                  <div className="flex flex-wrap gap-2">
-                    {group.tags.map(tag => (
-                      <span key={`${group.type}-${tag.tag_name}`} className="tag">
-                        {tag.tag_name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+        {surfaceSemanticTags.length > 0 && (
+          <div className="flex justify-center gap-2 mb-8">
+            {surfaceSemanticTags.map(tag => (
+              <span key={`${tag.tag_type}-${tag.tag_name}`} className="tag">{tag.tag_name}</span>
+            ))}
+          </div>
         )}
 
-        {semanticEnabled && semanticRecommendations.length > 0 && (
+        {viewMode === 'semantic' && semanticViewAvailable && (
           <section className="mb-8">
-            <h3 className="text-xs text-ash tracking-widest uppercase mb-3 text-center">续学推荐</h3>
-            <div className="card p-4 divide-y divide-stone/15 dark:divide-white/10">
-              {semanticRecommendations.map(item => {
-                const meta = semanticRecoMeta[item.poem_id]
-                if (!meta) return null
-                return (
-                  <Link
-                    key={item.poem_id}
-                    href={`/poem?id=${encodeURIComponent(item.poem_id)}&s=${meta.shard}&from=${encodeURIComponent(currentPoemPath)}`}
-                    className="block py-3 first:pt-0 last:pb-0"
-                  >
-                    <p className="font-serif text-base mb-1">{meta.title}</p>
-                    <p className="text-xs text-ash mb-1">〔{meta.dynasty}〕{meta.author}</p>
-                    <p className="text-sm text-ink/70 dark:text-night-text/70 leading-relaxed">{item.reason}</p>
-                  </Link>
-                )
-              })}
+            <h3 className="text-xs text-ash tracking-widest uppercase mb-3 text-center">语义</h3>
+            <div className="card p-5">
+              {semanticRecommendations.length > 0 ? (
+                <div className="divide-y divide-stone/15 dark:divide-white/10">
+                  {semanticRecommendations.map(item => {
+                    const meta = semanticRecoMeta[item.poem_id]
+                    if (!meta) return null
+                    return (
+                      <Link
+                        key={item.poem_id}
+                        href={`/poem?id=${encodeURIComponent(item.poem_id)}&s=${meta.shard}&from=${encodeURIComponent(currentPoemPath)}`}
+                        className="block py-3 first:pt-0 last:pb-0"
+                      >
+                        <p className="font-serif text-base mb-1">{meta.title}</p>
+                        <p className="text-xs text-ash mb-1">〔{meta.dynasty}〕{meta.author}</p>
+                        <p className="text-sm text-ink/70 dark:text-night-text/70 leading-relaxed">{item.reason}</p>
+                      </Link>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-ash text-center">暂无续学建议</p>
+              )}
             </div>
           </section>
         )}
