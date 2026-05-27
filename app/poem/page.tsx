@@ -1,13 +1,15 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import Loading from '@/components/Loading'
 import GroupPicker from '@/components/GroupPicker'
 import AiAssistBlock from '@/components/AiAssistBlock'
-import { getPoemById } from '@/lib/poems'
+import { getPoemById, getPoemIndexById, getPoemIndexByIds } from '@/lib/poems'
+import { loadPoemSemanticRecommendations, loadPoemSemanticTags, loadSemanticFeatures } from '@/lib/semantic'
+import { SemanticRecommendation, SemanticTagRecord, SemanticTagType } from '@/lib/semantic-types'
 import { Poem, StudyRecord, ViewMode } from '@/lib/types'
 import { getStudyRecord, markViewed } from '@/lib/storage'
 import { useFavorite, useFontSize } from '@/hooks/useStudy'
@@ -36,6 +38,15 @@ const fontSizes = [
   { key: 'medium', label: '中' },
   { key: 'large', label: '大' },
 ]
+
+const semanticTypeLabel: Record<SemanticTagType, string> = {
+  topic: '题材',
+  emotion: '情绪',
+  image: '意象',
+  style: '风格',
+  difficulty: '难度',
+  form: '体式',
+}
 
 function decodePoemId(rawId: string | null): string {
   if (!rawId) return ''
@@ -72,10 +83,91 @@ function PoemDetailPageContent() {
   const [viewMode, setViewMode] = useState<ViewMode>('original')
   const [showFontPanel, setShowFontPanel] = useState(false)
   const [showGroupPanel, setShowGroupPanel] = useState(false)
+  const [semanticEnabled, setSemanticEnabled] = useState(false)
+  const [semanticTags, setSemanticTags] = useState<SemanticTagRecord[]>([])
+  const [semanticRecommendations, setSemanticRecommendations] = useState<SemanticRecommendation[]>([])
+  const [semanticRecoMeta, setSemanticRecoMeta] = useState<Record<string, { title: string; author: string; dynasty: string; shard: number }>>({})
   const { isFavorite, toggle: toggleFav } = useFavorite(id || '')
   const { fontSize, setFontSize, fontClass } = useFontSize()
 
   useAndroidBackToPath(backTarget)
+
+  useEffect(() => {
+    let active = true
+
+    async function loadSemantic() {
+      setSemanticEnabled(false)
+      setSemanticTags([])
+      setSemanticRecommendations([])
+      setSemanticRecoMeta({})
+
+      if (!poem?.id) return
+
+      const features = await loadSemanticFeatures()
+      if (!active || !features.semanticEnabled) return
+      setSemanticEnabled(true)
+
+      let semanticShard = shardHint
+      if (!Number.isInteger(semanticShard) || semanticShard === undefined) {
+        const index = await getPoemIndexById(poem.id)
+        if (!active) return
+        semanticShard = index?.shard
+      }
+      if (!Number.isInteger(semanticShard) || semanticShard === undefined) return
+
+      const [tags, recommendations] = await Promise.all([
+        loadPoemSemanticTags(poem.id, semanticShard),
+        loadPoemSemanticRecommendations(poem.id, semanticShard),
+      ])
+      if (!active) return
+
+      setSemanticTags(tags)
+      const topRecommendations = recommendations.slice(0, 6)
+      setSemanticRecommendations(topRecommendations)
+
+      const recommendationIds = topRecommendations.map(item => item.poem_id)
+      if (recommendationIds.length === 0) return
+
+      const indices = await getPoemIndexByIds(recommendationIds)
+      if (!active) return
+
+      const nextMeta: Record<string, { title: string; author: string; dynasty: string; shard: number }> = {}
+      for (const item of indices) {
+        nextMeta[item.id] = {
+          title: item.title,
+          author: item.author,
+          dynasty: item.dynasty,
+          shard: item.shard,
+        }
+      }
+      setSemanticRecoMeta(nextMeta)
+    }
+
+    void loadSemantic()
+    return () => {
+      active = false
+    }
+  }, [poem?.id, shardHint])
+
+  const groupedSemanticTags = useMemo(() => {
+    const map = new Map<SemanticTagType, SemanticTagRecord[]>()
+    for (const tag of semanticTags) {
+      const group = map.get(tag.tag_type) || []
+      group.push(tag)
+      map.set(tag.tag_type, group)
+    }
+
+    return (Object.keys(semanticTypeLabel) as SemanticTagType[])
+      .filter(type => map.has(type))
+      .map(type => ({
+        type,
+        label: semanticTypeLabel[type],
+        tags: (map.get(type) || [])
+          .slice()
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 6),
+      }))
+  }, [semanticTags])
 
   useEffect(() => {
     async function load() {
@@ -282,6 +374,49 @@ function PoemDetailPageContent() {
             <span key={tag} className="tag">{tag}</span>
           ))}
         </div>
+
+        {semanticEnabled && groupedSemanticTags.length > 0 && (
+          <section className="mb-8">
+            <h3 className="text-xs text-ash tracking-widest uppercase mb-3 text-center">语义标签</h3>
+            <div className="card p-4 space-y-3">
+              {groupedSemanticTags.map(group => (
+                <div key={group.type} className="flex flex-wrap items-start gap-2">
+                  <span className="text-xs text-ash mt-1 min-w-10">{group.label}</span>
+                  <div className="flex flex-wrap gap-2">
+                    {group.tags.map(tag => (
+                      <span key={`${group.type}-${tag.tag_name}`} className="tag">
+                        {tag.tag_name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {semanticEnabled && semanticRecommendations.length > 0 && (
+          <section className="mb-8">
+            <h3 className="text-xs text-ash tracking-widest uppercase mb-3 text-center">续学推荐</h3>
+            <div className="card p-4 divide-y divide-stone/15 dark:divide-white/10">
+              {semanticRecommendations.map(item => {
+                const meta = semanticRecoMeta[item.poem_id]
+                if (!meta) return null
+                return (
+                  <Link
+                    key={item.poem_id}
+                    href={`/poem?id=${encodeURIComponent(item.poem_id)}&s=${meta.shard}&from=${encodeURIComponent(currentPoemPath)}`}
+                    className="block py-3 first:pt-0 last:pb-0"
+                  >
+                    <p className="font-serif text-base mb-1">{meta.title}</p>
+                    <p className="text-xs text-ash mb-1">〔{meta.dynasty}〕{meta.author}</p>
+                    <p className="text-sm text-ink/70 dark:text-night-text/70 leading-relaxed">{item.reason}</p>
+                  </Link>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
         <div className="text-center pb-8">
           <Link

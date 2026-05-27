@@ -52,6 +52,8 @@
     "generate": "npm run generate:full",
     "generate:full": "node scripts/generate-data.js --profile full && npm run build:index:sqlite",
     "generate:mini": "node scripts/generate-data.js --profile mini && npm run build:index:sqlite",
+    "build:semantic:mvp": "node scripts/semantic/build-semantic-mvp.js",
+    "build:semantic:mvp:enable": "node scripts/semantic/build-semantic-mvp.js --enable",
     "import": "node scripts/import-poems.js",
     "fetch": "node scripts/fetch-poetry.js",
     "fetch:gushiwen": "node scripts/fetch-gushiwen.js",
