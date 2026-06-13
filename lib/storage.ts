@@ -138,7 +138,7 @@ function markViewedLocal(poemId: string, shard?: number): void {
     shard: typeof shard === 'number' && Number.isInteger(shard) && shard >= 0 ? shard : existing?.shard,
     viewedAt: new Date().toISOString(),
     memorized: existing?.memorized || false,
-    reviewCount: (existing?.reviewCount || 0) + 1,
+    reviewCount: existing?.reviewCount || 0,
     favorite: existing?.favorite || false,
   })
 }
@@ -168,7 +168,7 @@ function markMemorizedLocal(poemId: string, memorized: boolean): void {
     shard: existing?.shard,
     viewedAt: existing?.viewedAt || new Date().toISOString(),
     memorized,
-    reviewCount: existing?.reviewCount || 0,
+    reviewCount: (existing?.reviewCount || 0) + 1,
     favorite: existing?.favorite || false,
   })
 }

@@ -1,7 +1,7 @@
 {
   "appId": "com.yeebo.shicizhaji",
   "productName": "诗词札记",
-  "electronVersion": "38.2.2",
+  "electronVersion": "41.5.0",
   "directories": {
     "output": "dist-desktop/installers"
   },

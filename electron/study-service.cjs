@@ -181,7 +181,7 @@ function createJsonStore(jsonPath) {
       shard: normalizeShard(shard) ?? existing?.shard,
       viewedAt: nowIso(),
       memorized: existing?.memorized || false,
-      reviewCount: (existing?.reviewCount || 0) + 1,
+      reviewCount: existing?.reviewCount || 0,
       favorite: existing?.favorite || false,
     }
     state.studyRecords[key] = next
@@ -214,7 +214,7 @@ function createJsonStore(jsonPath) {
       shard: existing?.shard,
       viewedAt: existing?.viewedAt || nowIso(),
       memorized: Boolean(memorized),
-      reviewCount: existing?.reviewCount || 0,
+      reviewCount: (existing?.reviewCount || 0) + 1,
       favorite: existing?.favorite || false,
     }
     persist()
@@ -544,7 +544,7 @@ function createSqliteStore(dbPath) {
       shard: normalizeShard(shard) ?? existing?.shard,
       viewedAt: nowIso(),
       memorized: existing?.memorized || false,
-      reviewCount: (existing?.reviewCount || 0) + 1,
+      reviewCount: existing?.reviewCount || 0,
       favorite: existing?.favorite || false,
     }
     saveStudyRecord(next)
@@ -575,7 +575,7 @@ function createSqliteStore(dbPath) {
       shard: existing?.shard,
       viewedAt: existing?.viewedAt || nowIso(),
       memorized: Boolean(memorized),
-      reviewCount: existing?.reviewCount || 0,
+      reviewCount: (existing?.reviewCount || 0) + 1,
       favorite: existing?.favorite || false,
     })
   }
