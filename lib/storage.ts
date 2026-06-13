@@ -1,4 +1,4 @@
-import { PoemGroup, ReciteScopeId, StudyRecord } from './types'
+import { PoemGroup, ReciteScopeId, ReviewGrade, StudyRecord } from './types'
 
 const STUDY_KEY = 'shici-study-records'
 const THEME_KEY = 'shici-theme'
@@ -28,6 +28,7 @@ type DesktopStudyBridge = {
   saveStudyRecord: (record: StudyRecord) => Promise<unknown>
   markViewed: (poemId: string, shard?: number) => Promise<unknown>
   toggleFavorite: (poemId: string) => Promise<boolean>
+  recordReview: (poemId: string, grade: ReviewGrade) => Promise<StudyRecord | null>
   markMemorized: (poemId: string, memorized: boolean) => Promise<unknown>
   getFavorites: () => Promise<string[]>
   getMemorized: () => Promise<string[]>
@@ -87,6 +88,12 @@ function normalizeStudyRecord(input: unknown): StudyRecord | null {
   const viewedAt = typeof raw.viewedAt === 'string' && raw.viewedAt
     ? raw.viewedAt
     : new Date().toISOString()
+  const masteryLevel = Number.isInteger(raw.masteryLevel)
+    ? Math.max(0, Math.min(5, Number(raw.masteryLevel)))
+    : raw.memorized ? 4 : 0
+  const lapseCount = Number.isInteger(raw.lapseCount) && (raw.lapseCount || 0) >= 0
+    ? Number(raw.lapseCount)
+    : 0
   return {
     poemId: raw.poemId.trim(),
     shard,
@@ -94,6 +101,42 @@ function normalizeStudyRecord(input: unknown): StudyRecord | null {
     memorized: Boolean(raw.memorized),
     reviewCount,
     favorite: Boolean(raw.favorite),
+    masteryLevel,
+    nextReviewAt: typeof raw.nextReviewAt === 'string' && raw.nextReviewAt ? raw.nextReviewAt : undefined,
+    lastReviewedAt: typeof raw.lastReviewedAt === 'string' && raw.lastReviewedAt ? raw.lastReviewedAt : undefined,
+    lapseCount,
+  }
+}
+
+const REVIEW_INTERVAL_DAYS: Record<Exclude<ReviewGrade, 'again'>, number[]> = {
+  hard: [1, 1, 2, 3, 5, 7],
+  good: [1, 1, 3, 7, 14, 30],
+  easy: [3, 3, 7, 14, 30, 60],
+}
+
+function buildReviewRecord(existing: StudyRecord, grade: ReviewGrade): StudyRecord {
+  const now = new Date()
+  const currentLevel = existing.masteryLevel || 0
+  let masteryLevel = currentLevel
+  let delayMs = 10 * 60 * 1000
+
+  if (grade === 'again') {
+    masteryLevel = Math.max(0, currentLevel - 1)
+  } else {
+    const gain = grade === 'easy' ? 2 : grade === 'good' ? 1 : 0
+    masteryLevel = Math.max(1, Math.min(5, currentLevel + gain))
+    const days = REVIEW_INTERVAL_DAYS[grade][masteryLevel] || 1
+    delayMs = days * 24 * 60 * 60 * 1000
+  }
+
+  return {
+    ...existing,
+    memorized: masteryLevel >= 4,
+    reviewCount: existing.reviewCount + 1,
+    masteryLevel,
+    lastReviewedAt: now.toISOString(),
+    nextReviewAt: new Date(now.getTime() + delayMs).toISOString(),
+    lapseCount: (existing.lapseCount || 0) + (grade === 'again' ? 1 : 0),
   }
 }
 
@@ -160,17 +203,24 @@ function toggleFavoriteLocal(poemId: string): boolean {
 }
 
 function markMemorizedLocal(poemId: string, memorized: boolean): void {
+  recordReviewLocal(poemId, memorized ? 'good' : 'again')
+}
+
+function recordReviewLocal(poemId: string, grade: ReviewGrade): StudyRecord | null {
   const normalizedId = poemId.trim()
-  if (!normalizedId) return
-  const existing = getStudyRecordLocal(normalizedId)
-  saveStudyRecordLocal({
+  if (!normalizedId) return null
+  const existing = getStudyRecordLocal(normalizedId) || {
     poemId: normalizedId,
-    shard: existing?.shard,
-    viewedAt: existing?.viewedAt || new Date().toISOString(),
-    memorized,
-    reviewCount: (existing?.reviewCount || 0) + 1,
-    favorite: existing?.favorite || false,
-  })
+    viewedAt: new Date().toISOString(),
+    memorized: false,
+    reviewCount: 0,
+    favorite: false,
+    masteryLevel: 0,
+    lapseCount: 0,
+  }
+  const next = buildReviewRecord(existing, grade)
+  saveStudyRecordLocal(next)
+  return next
 }
 
 function getFavoritesLocal(): string[] {
@@ -446,6 +496,29 @@ export async function markMemorized(poemId: string, memorized: boolean): Promise
       return undefined
     }
   )
+}
+
+export async function recordReview(poemId: string, grade: ReviewGrade): Promise<StudyRecord | null> {
+  const normalizedId = poemId.trim()
+  if (!normalizedId) return null
+  return withDesktopBridge(
+    bridge => bridge.recordReview(normalizedId, grade),
+    () => recordReviewLocal(normalizedId, grade)
+  )
+}
+
+export async function getDueReviews(limit = 20): Promise<StudyRecord[]> {
+  const records = Object.values(await getStudyRecords())
+  const now = Date.now()
+  const cap = Math.max(1, Number.parseInt(String(limit), 10) || 20)
+  return records
+    .filter(record => {
+      if (!record.nextReviewAt) return false
+      const dueAt = new Date(record.nextReviewAt).getTime()
+      return Number.isFinite(dueAt) && dueAt <= now
+    })
+    .sort((a, b) => new Date(a.nextReviewAt || 0).getTime() - new Date(b.nextReviewAt || 0).getTime())
+    .slice(0, cap)
 }
 
 export async function getFavorites(): Promise<string[]> {

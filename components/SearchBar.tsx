@@ -13,6 +13,7 @@ export default function SearchBar({
   minLength = 2,
   maxLength = 80,
   historyKey = DEFAULT_HISTORY_KEY,
+  initialValue = '',
 }: {
   onSearch: (query: string) => void
   placeholder?: string
@@ -20,8 +21,9 @@ export default function SearchBar({
   minLength?: number
   maxLength?: number
   historyKey?: string
+  initialValue?: string
 }) {
-  const [query, setRawQuery] = useState('')
+  const [query, setRawQuery] = useState(initialValue.slice(0, maxLength))
   const [isComposing, setIsComposing] = useState(false)
   const [history, setHistory] = useState<string[]>([])
   const onSearchRef = useRef(onSearch)

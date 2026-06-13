@@ -265,6 +265,12 @@ function registerIpcHandlers(poems, study, aiSettings, appOrigin) {
     return study.toggleFavorite(String(poemId || ''))
   })
 
+  handle('study:recordReview', async (_event, payload) => {
+    const poemId = String((payload && payload.poemId) || '')
+    const grade = String((payload && payload.grade) || '')
+    return study.recordReview(poemId, grade)
+  })
+
   handle('study:markMemorized', async (_event, payload) => {
     const poemId = typeof payload === 'string' ? payload : String((payload && payload.poemId) || '')
     const memorized = Boolean(payload && payload.memorized)

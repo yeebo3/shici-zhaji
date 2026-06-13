@@ -34,15 +34,17 @@ export default function PoemCard({
   compact,
   highlightQuery,
   matchedLines,
+  returnPath,
 }: {
   poem: PoemIndex
   compact?: boolean
   highlightQuery?: string
   matchedLines?: string[]
+  returnPath?: string
 }) {
   const pathname = usePathname()
   const shownMatchedLines = (matchedLines || []).slice(0, 2)
-  const currentPath = pathname || '/'
+  const currentPath = returnPath || pathname || '/'
   const poemHref =
     `/poem?id=${encodeURIComponent(poem.id)}` +
     `&s=${poem.shard}` +

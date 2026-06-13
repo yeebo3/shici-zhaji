@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BookOpen, Grid3X3, User, Moon, Sun } from 'lucide-react'
+import { BookOpen, Brain, Grid3X3, User, Moon, Sun } from 'lucide-react'
 import { useTheme } from '@/hooks/useStudy'
 import { useAndroidExitOnRootRoutes } from '@/hooks/useAndroidExitOnRootRoutes'
 
@@ -13,6 +13,7 @@ export default function Navbar() {
 
   const links = [
     { href: '/', label: '首页', icon: BookOpen },
+    { href: '/recite', label: '复习', icon: Brain },
     { href: '/category', label: '分类', icon: Grid3X3 },
     { href: '/mine', label: '我的', icon: User },
   ]
@@ -26,7 +27,7 @@ export default function Navbar() {
 
         <nav className="flex items-center gap-1">
           {links.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href
+            const active = href === '/recite' ? pathname.startsWith('/recite') : pathname === href
             return (
               <Link
                 key={href}

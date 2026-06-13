@@ -3,6 +3,12 @@ const path = require('node:path')
 
 const DEFAULT_RECITE_SCOPE = 'annotated'
 const GROUP_SCOPE_PREFIX = 'group:'
+const REVIEW_GRADES = new Set(['again', 'hard', 'good', 'easy'])
+const REVIEW_INTERVAL_DAYS = {
+  hard: [1, 1, 2, 3, 5, 7],
+  good: [1, 1, 3, 7, 14, 30],
+  easy: [3, 3, 7, 14, 30, 60],
+}
 
 function nowIso() {
   return new Date().toISOString()
@@ -44,6 +50,49 @@ function normalizeReviewCount(input) {
   return num
 }
 
+function normalizeMasteryLevel(input, memorized = false) {
+  const num = Number.parseInt(String(input), 10)
+  if (!Number.isInteger(num)) return memorized ? 4 : 0
+  return Math.max(0, Math.min(5, num))
+}
+
+function normalizeOptionalIso(input) {
+  if (typeof input !== 'string' || !input.trim()) return undefined
+  const parsed = new Date(input)
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString()
+}
+
+function normalizeReviewGrade(input) {
+  return REVIEW_GRADES.has(input) ? input : 'good'
+}
+
+function buildReviewRecord(existing, gradeInput) {
+  const grade = normalizeReviewGrade(gradeInput)
+  const now = new Date()
+  const currentLevel = normalizeMasteryLevel(existing.masteryLevel, existing.memorized)
+  let masteryLevel = currentLevel
+  let delayMs = 10 * 60 * 1000
+
+  if (grade === 'again') {
+    masteryLevel = Math.max(0, currentLevel - 1)
+  } else {
+    const gain = grade === 'easy' ? 2 : grade === 'good' ? 1 : 0
+    masteryLevel = Math.max(1, Math.min(5, currentLevel + gain))
+    const days = REVIEW_INTERVAL_DAYS[grade][masteryLevel] || 1
+    delayMs = days * 24 * 60 * 60 * 1000
+  }
+
+  return {
+    ...existing,
+    memorized: masteryLevel >= 4,
+    reviewCount: normalizeReviewCount(existing.reviewCount) + 1,
+    masteryLevel,
+    nextReviewAt: new Date(now.getTime() + delayMs).toISOString(),
+    lastReviewedAt: now.toISOString(),
+    lapseCount: normalizeReviewCount(existing.lapseCount) + (grade === 'again' ? 1 : 0),
+  }
+}
+
 function normalizeReciteScope(input) {
   if (typeof input !== 'string') return DEFAULT_RECITE_SCOPE
   const value = input.trim()
@@ -66,13 +115,18 @@ function normalizeStudyRecord(input) {
   if (!input || typeof input !== 'object') return null
   const poemId = normalizePoemId(input.poemId)
   if (!poemId) return null
+  const memorized = toBoolean(input.memorized)
   return {
     poemId,
     shard: normalizeShard(input.shard),
     viewedAt: normalizeViewedAt(input.viewedAt),
-    memorized: toBoolean(input.memorized),
+    memorized,
     reviewCount: normalizeReviewCount(input.reviewCount),
     favorite: toBoolean(input.favorite),
+    masteryLevel: normalizeMasteryLevel(input.masteryLevel, memorized),
+    nextReviewAt: normalizeOptionalIso(input.nextReviewAt),
+    lastReviewedAt: normalizeOptionalIso(input.lastReviewedAt),
+    lapseCount: normalizeReviewCount(input.lapseCount),
   }
 }
 
@@ -177,6 +231,7 @@ function createJsonStore(jsonPath) {
     if (!key) return
     const existing = state.studyRecords[key]
     const next = {
+      ...existing,
       poemId: key,
       shard: normalizeShard(shard) ?? existing?.shard,
       viewedAt: nowIso(),
@@ -194,6 +249,7 @@ function createJsonStore(jsonPath) {
     const existing = state.studyRecords[key]
     const newFav = !(existing?.favorite || false)
     state.studyRecords[key] = {
+      ...existing,
       poemId: key,
       shard: existing?.shard,
       viewedAt: existing?.viewedAt || nowIso(),
@@ -206,18 +262,24 @@ function createJsonStore(jsonPath) {
   }
 
   function markMemorized(poemId, memorized) {
+    return recordReview(poemId, memorized ? 'good' : 'again')
+  }
+
+  function recordReview(poemId, grade) {
     const key = normalizePoemId(poemId)
-    if (!key) return
-    const existing = state.studyRecords[key]
-    state.studyRecords[key] = {
+    if (!key) return null
+    const existing = state.studyRecords[key] || {
       poemId: key,
-      shard: existing?.shard,
-      viewedAt: existing?.viewedAt || nowIso(),
-      memorized: Boolean(memorized),
-      reviewCount: (existing?.reviewCount || 0) + 1,
-      favorite: existing?.favorite || false,
+      viewedAt: nowIso(),
+      memorized: false,
+      reviewCount: 0,
+      favorite: false,
+      masteryLevel: 0,
+      lapseCount: 0,
     }
+    state.studyRecords[key] = buildReviewRecord(existing, grade)
     persist()
+    return state.studyRecords[key]
   }
 
   function getFavorites() {
@@ -380,6 +442,7 @@ function createJsonStore(jsonPath) {
     saveStudyRecord,
     markViewed,
     toggleFavorite,
+    recordReview,
     markMemorized,
     getFavorites,
     getMemorized,
@@ -432,6 +495,10 @@ function createSqliteStore(dbPath) {
       memorized INTEGER NOT NULL DEFAULT 0,
       review_count INTEGER NOT NULL DEFAULT 0,
       favorite INTEGER NOT NULL DEFAULT 0,
+      mastery_level INTEGER NOT NULL DEFAULT 0,
+      next_review_at TEXT,
+      last_reviewed_at TEXT,
+      lapse_count INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     );
 
@@ -461,15 +528,36 @@ function createSqliteStore(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_group_poems_poem_id ON group_poems(poem_id);
   `)
 
+  const studyColumns = new Set(
+    db.prepare('PRAGMA table_info(study_records)').all().map(column => column.name)
+  )
+  if (!studyColumns.has('mastery_level')) db.exec('ALTER TABLE study_records ADD COLUMN mastery_level INTEGER NOT NULL DEFAULT 0')
+  if (!studyColumns.has('next_review_at')) db.exec('ALTER TABLE study_records ADD COLUMN next_review_at TEXT')
+  if (!studyColumns.has('last_reviewed_at')) db.exec('ALTER TABLE study_records ADD COLUMN last_reviewed_at TEXT')
+  if (!studyColumns.has('lapse_count')) db.exec('ALTER TABLE study_records ADD COLUMN lapse_count INTEGER NOT NULL DEFAULT 0')
+  db.exec(`
+    UPDATE study_records
+    SET mastery_level = 4
+    WHERE memorized = 1 AND mastery_level = 0 AND last_reviewed_at IS NULL
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_study_records_next_review_at ON study_records(next_review_at)')
+
   const upsertStudyStmt = db.prepare(`
-    INSERT INTO study_records (poem_id, shard, viewed_at, memorized, review_count, favorite, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO study_records (
+      poem_id, shard, viewed_at, memorized, review_count, favorite,
+      mastery_level, next_review_at, last_reviewed_at, lapse_count, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(poem_id) DO UPDATE SET
       shard = excluded.shard,
       viewed_at = excluded.viewed_at,
       memorized = excluded.memorized,
       review_count = excluded.review_count,
       favorite = excluded.favorite,
+      mastery_level = excluded.mastery_level,
+      next_review_at = excluded.next_review_at,
+      last_reviewed_at = excluded.last_reviewed_at,
+      lapse_count = excluded.lapse_count,
       updated_at = excluded.updated_at
   `)
 
@@ -481,6 +569,10 @@ function createSqliteStore(dbPath) {
       memorized: Number(row.memorized) === 1,
       reviewCount: Number(row.reviewCount || 0),
       favorite: Number(row.favorite) === 1,
+      masteryLevel: normalizeMasteryLevel(row.masteryLevel, Number(row.memorized) === 1),
+      nextReviewAt: row.nextReviewAt || undefined,
+      lastReviewedAt: row.lastReviewedAt || undefined,
+      lapseCount: Number(row.lapseCount || 0),
     }
   }
 
@@ -492,7 +584,11 @@ function createSqliteStore(dbPath) {
         viewed_at AS viewedAt,
         memorized,
         review_count AS reviewCount,
-        favorite
+        favorite,
+        mastery_level AS masteryLevel,
+        next_review_at AS nextReviewAt,
+        last_reviewed_at AS lastReviewedAt,
+        lapse_count AS lapseCount
       FROM study_records
     `).all()
     const out = {}
@@ -513,7 +609,11 @@ function createSqliteStore(dbPath) {
         viewed_at AS viewedAt,
         memorized,
         review_count AS reviewCount,
-        favorite
+        favorite,
+        mastery_level AS masteryLevel,
+        next_review_at AS nextReviewAt,
+        last_reviewed_at AS lastReviewedAt,
+        lapse_count AS lapseCount
       FROM study_records
       WHERE poem_id = ?
     `).get(key)
@@ -531,6 +631,10 @@ function createSqliteStore(dbPath) {
       normalized.memorized ? 1 : 0,
       normalized.reviewCount,
       normalized.favorite ? 1 : 0,
+      normalized.masteryLevel || 0,
+      normalized.nextReviewAt || null,
+      normalized.lastReviewedAt || null,
+      normalized.lapseCount || 0,
       now
     )
   }
@@ -540,6 +644,7 @@ function createSqliteStore(dbPath) {
     if (!key) return
     const existing = getStudyRecord(key)
     const next = {
+      ...existing,
       poemId: key,
       shard: normalizeShard(shard) ?? existing?.shard,
       viewedAt: nowIso(),
@@ -556,6 +661,7 @@ function createSqliteStore(dbPath) {
     const existing = getStudyRecord(key)
     const newFav = !(existing?.favorite || false)
     saveStudyRecord({
+      ...existing,
       poemId: key,
       shard: existing?.shard,
       viewedAt: existing?.viewedAt || nowIso(),
@@ -567,17 +673,24 @@ function createSqliteStore(dbPath) {
   }
 
   function markMemorized(poemId, memorized) {
+    return recordReview(poemId, memorized ? 'good' : 'again')
+  }
+
+  function recordReview(poemId, grade) {
     const key = normalizePoemId(poemId)
-    if (!key) return
-    const existing = getStudyRecord(key)
-    saveStudyRecord({
+    if (!key) return null
+    const existing = getStudyRecord(key) || {
       poemId: key,
-      shard: existing?.shard,
-      viewedAt: existing?.viewedAt || nowIso(),
-      memorized: Boolean(memorized),
-      reviewCount: (existing?.reviewCount || 0) + 1,
-      favorite: existing?.favorite || false,
-    })
+      viewedAt: nowIso(),
+      memorized: false,
+      reviewCount: 0,
+      favorite: false,
+      masteryLevel: 0,
+      lapseCount: 0,
+    }
+    const next = buildReviewRecord(existing, grade)
+    saveStudyRecord(next)
+    return next
   }
 
   function getFavorites() {
@@ -609,7 +722,11 @@ function createSqliteStore(dbPath) {
         viewed_at AS viewedAt,
         memorized,
         review_count AS reviewCount,
-        favorite
+        favorite,
+        mastery_level AS masteryLevel,
+        next_review_at AS nextReviewAt,
+        last_reviewed_at AS lastReviewedAt,
+        lapse_count AS lapseCount
       FROM study_records
       ORDER BY viewed_at DESC
       LIMIT ?
@@ -833,8 +950,11 @@ function createSqliteStore(dbPath) {
       db.exec('BEGIN')
       const insertRecord = db.prepare(`
         INSERT OR REPLACE INTO study_records
-        (poem_id, shard, viewed_at, memorized, review_count, favorite, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (
+          poem_id, shard, viewed_at, memorized, review_count, favorite,
+          mastery_level, next_review_at, last_reviewed_at, lapse_count, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       for (const record of Object.values(records)) {
         insertRecord.run(
@@ -844,6 +964,10 @@ function createSqliteStore(dbPath) {
           record.memorized ? 1 : 0,
           record.reviewCount,
           record.favorite ? 1 : 0,
+          record.masteryLevel || 0,
+          record.nextReviewAt || null,
+          record.lastReviewedAt || null,
+          record.lapseCount || 0,
           nowIso()
         )
       }
@@ -894,6 +1018,7 @@ function createSqliteStore(dbPath) {
     saveStudyRecord,
     markViewed,
     toggleFavorite,
+    recordReview,
     markMemorized,
     getFavorites,
     getMemorized,

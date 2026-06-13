@@ -50,6 +50,10 @@ export type StudyRecord = {
   memorized: boolean
   reviewCount: number
   favorite: boolean
+  masteryLevel?: number
+  nextReviewAt?: string
+  lastReviewedAt?: string
+  lapseCount?: number
 }
 
 export type FontSize = 'small' | 'medium' | 'large'
@@ -57,6 +61,8 @@ export type FontSize = 'small' | 'medium' | 'large'
 export type ViewMode = 'original' | 'annotated' | 'appreciation' | 'extension' | 'all'
 
 export type ReciteMode = 'read' | 'mask' | 'line' | 'test'
+
+export type ReviewGrade = 'again' | 'hard' | 'good' | 'easy'
 
 export type BuiltinPoemNotebookId = 'all' | 'annotated' | 'plain'
 

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Navbar from '@/components/Navbar'
 import PoemCard from '@/components/PoemCard'
 import SearchBar from '@/components/SearchBar'
@@ -37,7 +38,15 @@ function toSearchHit(poem: PoemIndex): PoemSearchHit {
   }
 }
 
-export default function CategoryPage() {
+function CategoryPageContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const initialFilterType = (() => {
+    const value = searchParams.get('type')
+    return value === 'author' || value === 'tag' ? value : 'dynasty'
+  })()
+  const initialSearchQuery = (searchParams.get('q') || '').trim().slice(0, MAX_SEARCH_QUERY_LENGTH)
+  const initialSelected = initialSearchQuery ? null : (searchParams.get('value') || '').trim() || null
   const [poems, setPoems] = useState<PoemSearchHit[]>([])
   const [total, setTotal] = useState<number | null>(0)
   const [hasMore, setHasMore] = useState(false)
@@ -49,11 +58,31 @@ export default function CategoryPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [filterType, setFilterType] = useState<FilterType>('dynasty')
-  const [selected, setSelected] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [filterType, setFilterType] = useState<FilterType>(initialFilterType)
+  const [selected, setSelected] = useState<string | null>(initialSelected)
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery)
   const [showAllFilters, setShowAllFilters] = useState(false)
   const queryAbortRef = useRef<AbortController | null>(null)
+
+  const returnPath = useMemo(() => {
+    const params = new URLSearchParams()
+    if (searchQuery) {
+      params.set('q', searchQuery)
+    } else {
+      params.set('type', filterType)
+      if (selected) params.set('value', selected)
+    }
+    const query = params.toString()
+    return query ? `/category?${query}` : '/category'
+  }, [filterType, searchQuery, selected])
+
+  useEffect(() => {
+    const currentQuery = searchParams.toString()
+    const currentPath = currentQuery ? `/category?${currentQuery}` : '/category'
+    if (currentPath !== returnPath) {
+      router.replace(returnPath, { scroll: false })
+    }
+  }, [returnPath, router, searchParams])
 
   useEffect(() => {
     async function init() {
@@ -226,6 +255,7 @@ export default function CategoryPage() {
             placeholder="搜索诗名、作者、诗句..."
             minLength={MIN_SEARCH_QUERY_LENGTH}
             maxLength={MAX_SEARCH_QUERY_LENGTH}
+            initialValue={initialSearchQuery}
           />
         </div>
 
@@ -295,6 +325,7 @@ export default function CategoryPage() {
                 poem={poem}
                 highlightQuery={searchQuery || undefined}
                 matchedLines={poem.matchedLines}
+                returnPath={returnPath}
               />
             ))
           ) : (
@@ -318,5 +349,17 @@ export default function CategoryPage() {
         )}
       </main>
     </div>
+  )
+}
+
+function CategoryPageFallback() {
+  return <div className="min-h-screen"><Navbar /><Loading /></div>
+}
+
+export default function CategoryPage() {
+  return (
+    <Suspense fallback={<CategoryPageFallback />}>
+      <CategoryPageContent />
+    </Suspense>
   )
 }

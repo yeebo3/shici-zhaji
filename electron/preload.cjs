@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('desktopStudy', {
   saveStudyRecord: record => invoke('study:saveRecord', record),
   markViewed: (poemId, shard) => invoke('study:markViewed', { poemId, shard }),
   toggleFavorite: poemId => invoke('study:toggleFavorite', poemId),
+  recordReview: (poemId, grade) => invoke('study:recordReview', { poemId, grade }),
   markMemorized: (poemId, memorized) => invoke('study:markMemorized', { poemId, memorized }),
   getFavorites: () => invoke('study:getFavorites'),
   getMemorized: () => invoke('study:getMemorized'),
