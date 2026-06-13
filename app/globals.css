@@ -6,6 +6,17 @@
   body {
     @apply bg-parchment text-ink font-sans antialiased;
     @apply dark:bg-night dark:text-night-text;
+    min-height: 100dvh;
+    padding-bottom: env(safe-area-inset-bottom);
+    overflow-x: hidden;
+  }
+
+  :where(a, button, input, textarea, select):focus-visible {
+    @apply outline-none ring-2 ring-ink/35 ring-offset-2 ring-offset-parchment;
+  }
+
+  .dark :where(a, button, input, textarea, select):focus-visible {
+    @apply ring-night-text/40 ring-offset-night;
   }
 }
 
@@ -19,18 +30,26 @@
   }
 
   .btn-primary {
-    @apply px-5 py-2 rounded-md bg-ink text-parchment dark:bg-night-text dark:text-night
+    @apply min-h-11 px-5 py-2 rounded-md bg-ink text-parchment dark:bg-night-text dark:text-night
            hover:opacity-80 transition-opacity text-sm font-sans;
   }
 
   .btn-ghost {
-    @apply px-4 py-2 rounded-md text-ink/70 dark:text-night-text/70
+    @apply min-h-11 px-4 py-2 rounded-md text-ink/70 dark:text-night-text/70
            hover:bg-ink/5 dark:hover:bg-white/5 transition-colors text-sm;
   }
 
   .tag {
     @apply inline-block px-2.5 py-0.5 text-xs rounded-full
            bg-stone/15 text-ink/60 dark:bg-stone/10 dark:text-night-text/60;
+  }
+
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-fixed-bottom {
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
   }
 }
 

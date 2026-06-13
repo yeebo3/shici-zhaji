@@ -523,7 +523,8 @@ function RecitePageContent() {
               <button
                 key={item.id}
                 onClick={() => { void setNotebook(item.id) }}
-                className={`px-3 py-1.5 rounded-md text-xs transition-colors ${
+                aria-pressed={notebook === item.id}
+                className={`min-h-11 px-3 py-1.5 rounded-md text-xs transition-colors ${
                   notebook === item.id
                     ? 'bg-ink/10 dark:bg-white/10 text-ink dark:text-night-text'
                     : 'text-ash hover:text-ink/75 dark:hover:text-night-text/75'
@@ -539,7 +540,8 @@ function RecitePageContent() {
         <div className="flex justify-center gap-1 mb-8">
           {modes.map(({ key, label, icon: Icon }) => (
             <button key={key} onClick={() => handleModeChange(key)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs transition-colors
+              aria-pressed={mode === key}
+              className={`flex min-h-11 items-center gap-1 px-3 py-1.5 rounded-md text-xs transition-colors
                 ${mode === key ? 'bg-ink/8 dark:bg-white/8 text-ink dark:text-night-text'
                   : 'text-ash hover:text-ink/70 dark:hover:text-night-text/70'}`}>
               <Icon size={13} /> {label}
@@ -567,9 +569,14 @@ function RecitePageContent() {
                     if (!isMasked) return <span key={ci} className="text-ink/90 dark:text-night-text/90">{char}</span>
                     if (isRevealed) return <span key={ci} className="text-emerald-600 dark:text-emerald-400">{char}</span>
                     return (
-                      <span key={ci} onClick={() => handleRevealWord(key)}
-                        className="inline-block w-[1.2em] h-[1.2em] bg-ink/10 dark:bg-white/10 rounded cursor-pointer
-                                   hover:bg-ink/20 dark:hover:bg-white/20 transition-colors mx-px align-middle" />
+                      <button
+                        key={ci}
+                        type="button"
+                        onClick={() => handleRevealWord(key)}
+                        aria-label={`显示第 ${li + 1} 行第 ${ci + 1} 个字`}
+                        className="inline-flex w-[1.2em] h-[1.2em] bg-ink/10 dark:bg-white/10 rounded cursor-pointer
+                                   hover:bg-ink/20 dark:hover:bg-white/20 transition-colors mx-px align-middle"
+                      />
                     )
                   })}
                 </p>
@@ -681,7 +688,7 @@ function RecitePageContent() {
       </main>
 
       {mode === 'line' && (
-        <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-40 w-[min(calc(100%-1rem),42rem)]">
+        <div className="safe-fixed-bottom fixed left-1/2 -translate-x-1/2 z-40 w-[min(calc(100%-1rem),42rem)]">
           <div className="card px-3 py-2">
             <div className="grid grid-cols-2 gap-2">
             <button

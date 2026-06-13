@@ -95,6 +95,8 @@ export default function AiSettingsPanel() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const draftDirtyRef = useRef(initialDraft.dirty)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
 
   const loadStatus = async () => {
     setLoading(true)
@@ -123,6 +125,43 @@ export default function AiSettingsPanel() {
   useEffect(() => {
     void loadStatus()
   }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    closeButtonRef.current?.focus()
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setOpen(false)
+        return
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]'
+      ))
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = previousOverflow
+      previousFocus?.focus()
+    }
+  }, [open])
 
   const persistDraft = (next: Partial<AiSettingsDraft>) => {
     const draft = {
@@ -226,6 +265,7 @@ export default function AiSettingsPanel() {
           onClick={() => setOpen(true)}
           className="btn-ghost inline-flex items-center gap-1.5 text-xs"
           aria-label="打开 AI 设置"
+          aria-expanded={open}
         >
           <KeyRound size={14} />
           AI
@@ -238,13 +278,28 @@ export default function AiSettingsPanel() {
       </div>
 
       {open && (
-        <div className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[1px] px-4 py-10">
-          <div className="max-w-lg mx-auto card p-4 sm:p-5 max-h-[85vh] overflow-y-auto">
+        <div
+          className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[1px] px-4 py-10"
+          style={{
+            paddingTop: 'max(2.5rem, env(safe-area-inset-top))',
+            paddingBottom: 'max(2.5rem, env(safe-area-inset-bottom))',
+          }}
+          onMouseDown={event => {
+            if (event.target === event.currentTarget) setOpen(false)
+          }}
+        >
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ai-settings-title"
+            className="max-w-lg mx-auto card p-4 sm:p-5 max-h-[85vh] overflow-y-auto"
+          >
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <div className="flex items-center gap-1.5 text-sm text-ink/80 dark:text-night-text/80">
                   <KeyRound size={15} />
-                  <span>AI 设置</span>
+                  <span id="ai-settings-title">AI 设置</span>
                 </div>
                 <p className="text-xs text-ash mt-1">
                   {loading ? '读取中' : status ? sourceLabel(status.source) : '未知'}
@@ -252,7 +307,7 @@ export default function AiSettingsPanel() {
                   {configured ? '已配置 API Key' : '未配置 API Key'}
                 </p>
               </div>
-              <button onClick={() => setOpen(false)} className="btn-ghost p-1.5" aria-label="关闭 AI 设置">
+              <button ref={closeButtonRef} onClick={() => setOpen(false)} className="btn-ghost p-1.5" aria-label="关闭 AI 设置">
                 <X size={15} />
               </button>
             </div>
@@ -390,4 +445,3 @@ export default function AiSettingsPanel() {
     </section>
   )
 }
-

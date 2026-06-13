@@ -5,9 +5,9 @@ const DEFAULT_RECITE_SCOPE = 'annotated'
 const GROUP_SCOPE_PREFIX = 'group:'
 const REVIEW_GRADES = new Set(['again', 'hard', 'good', 'easy'])
 const REVIEW_INTERVAL_DAYS = {
-  hard: [1, 1, 2, 3, 5, 7],
-  good: [1, 1, 3, 7, 14, 30],
-  easy: [3, 3, 7, 14, 30, 60],
+  hard: [0.5, 1, 2, 3, 5],
+  good: [1, 3, 7, 14, 30],
+  easy: [3, 7, 14, 30, 60],
 }
 
 function nowIso() {
@@ -78,7 +78,7 @@ function buildReviewRecord(existing, gradeInput) {
   } else {
     const gain = grade === 'easy' ? 2 : grade === 'good' ? 1 : 0
     masteryLevel = Math.max(1, Math.min(5, currentLevel + gain))
-    const days = REVIEW_INTERVAL_DAYS[grade][masteryLevel] || 1
+    const days = REVIEW_INTERVAL_DAYS[grade][Math.max(0, masteryLevel - 1)] || 1
     delayMs = days * 24 * 60 * 60 * 1000
   }
 

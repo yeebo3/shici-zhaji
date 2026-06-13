@@ -14,7 +14,7 @@ import {
   searchPoemsFullText,
 } from '@/lib/poems'
 import { PoemIndex, PoemSearchHit } from '@/lib/types'
-import { Calendar, User, Tag, ChevronDown, ChevronUp } from 'lucide-react'
+import { Calendar, Search, User, Tag } from 'lucide-react'
 
 type FilterType = 'dynasty' | 'author' | 'tag'
 
@@ -24,10 +24,9 @@ const filterTabs: { key: FilterType; label: string; icon: React.ElementType }[] 
   { key: 'tag', label: '主题', icon: Tag },
 ]
 
-const PAGE_SIZE = 120
-const MAX_FILTER_CHIPS = 500
-const COLLAPSED_CHIPS = 48
-const MIN_SEARCH_QUERY_LENGTH = 2
+const PAGE_SIZE = 48
+const FILTER_ITEM_LIMIT = 48
+const MIN_SEARCH_QUERY_LENGTH = 1
 const MAX_SEARCH_QUERY_LENGTH = 80
 
 function toSearchHit(poem: PoemIndex): PoemSearchHit {
@@ -61,7 +60,7 @@ function CategoryPageContent() {
   const [filterType, setFilterType] = useState<FilterType>(initialFilterType)
   const [selected, setSelected] = useState<string | null>(initialSelected)
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery)
-  const [showAllFilters, setShowAllFilters] = useState(false)
+  const [filterQuery, setFilterQuery] = useState('')
   const queryAbortRef = useRef<AbortController | null>(null)
 
   const returnPath = useMemo(() => {
@@ -211,11 +210,21 @@ function CategoryPageContent() {
   }
 
   const items = filterType === 'dynasty' ? dynasties : filterType === 'author' ? authors : tags
-  const chipItems = useMemo(() => items.slice(0, MAX_FILTER_CHIPS), [items])
-  const visibleChipItems = useMemo(() => {
-    if (showAllFilters) return chipItems
-    return chipItems.slice(0, COLLAPSED_CHIPS)
-  }, [chipItems, showAllFilters])
+  const matchingFilterItems = useMemo(() => {
+    const q = filterQuery.trim().toLocaleLowerCase('zh-CN')
+    const matched = q
+      ? items.filter(item => item.toLocaleLowerCase('zh-CN').includes(q))
+      : items
+    const visible = matched.slice(0, FILTER_ITEM_LIMIT)
+    if (selected && matched.includes(selected) && !visible.includes(selected)) {
+      return [selected, ...visible].slice(0, FILTER_ITEM_LIMIT)
+    }
+    return visible
+  }, [filterQuery, items, selected])
+  const matchingFilterCount = useMemo(() => {
+    const q = filterQuery.trim().toLocaleLowerCase('zh-CN')
+    return q ? items.filter(item => item.toLocaleLowerCase('zh-CN').includes(q)).length : items.length
+  }, [filterQuery, items])
 
   const handleSearch = useCallback((q: string) => {
     const next = q.trim().slice(0, MAX_SEARCH_QUERY_LENGTH)
@@ -227,7 +236,7 @@ function CategoryPageContent() {
     setFilterType(type)
     setSelected(null)
     setSearchQuery('')
-    setShowAllFilters(false)
+    setFilterQuery('')
   }
 
   if (initialLoading) return <div className="min-h-screen"><Navbar /><Loading /></div>
@@ -264,7 +273,8 @@ function CategoryPageContent() {
             <div className="flex gap-1 mb-4">
               {filterTabs.map(({ key, label, icon: Icon }) => (
                 <button key={key} onClick={() => handleFilterChange(key)}
-                  className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm transition-colors
+                  aria-pressed={filterType === key}
+                  className={`flex min-h-11 items-center gap-1 px-3 py-1.5 rounded-md text-sm transition-colors
                     ${filterType === key ? 'bg-ink/8 dark:bg-white/8 text-ink dark:text-night-text'
                       : 'text-ash hover:text-ink/70 dark:hover:text-night-text/70'}`}>
                   <Icon size={14} /> {label}
@@ -272,35 +282,37 @@ function CategoryPageContent() {
               ))}
             </div>
 
+            {items.length > FILTER_ITEM_LIMIT && (
+              <label className="relative block mb-3">
+                <span className="sr-only">筛选{filterTabs.find(item => item.key === filterType)?.label}</span>
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ash" />
+                <input
+                  value={filterQuery}
+                  onChange={event => setFilterQuery(event.target.value.slice(0, 40))}
+                  placeholder={`输入${filterTabs.find(item => item.key === filterType)?.label}名称快速筛选`}
+                  className="w-full rounded-lg border border-stone/20 bg-cream py-2.5 pl-9 pr-3 text-sm dark:border-stone/10 dark:bg-night-card"
+                />
+              </label>
+            )}
+
             <div className="flex flex-wrap gap-2 mb-3">
               <button onClick={() => setSelected(null)}
-                className={`tag cursor-pointer transition-colors ${!selected ? 'bg-ink/15 dark:bg-white/15 text-ink dark:text-night-text' : ''}`}>
+                aria-pressed={!selected}
+                className={`tag min-h-9 cursor-pointer transition-colors ${!selected ? 'bg-ink/15 dark:bg-white/15 text-ink dark:text-night-text' : ''}`}>
                 全部
               </button>
-              {visibleChipItems.map(item => (
+              {matchingFilterItems.map(item => (
                 <button key={item} onClick={() => setSelected(item)}
-                  className={`tag cursor-pointer transition-colors ${selected === item ? 'bg-ink/15 dark:bg-white/15 text-ink dark:text-night-text' : ''}`}>
+                  aria-pressed={selected === item}
+                  className={`tag min-h-9 cursor-pointer transition-colors ${selected === item ? 'bg-ink/15 dark:bg-white/15 text-ink dark:text-night-text' : ''}`}>
                   {item}
                 </button>
               ))}
             </div>
 
-            {chipItems.length > COLLAPSED_CHIPS && (
-              <button
-                onClick={() => setShowAllFilters(v => !v)}
-                className="btn-ghost text-xs inline-flex items-center gap-1 mb-4"
-              >
-                {showAllFilters ? (
-                  <><ChevronUp size={12} /> 收起标签</>
-                ) : (
-                  <><ChevronDown size={12} /> 展开全部标签（{chipItems.length}）</>
-                )}
-              </button>
-            )}
-
-            {items.length > MAX_FILTER_CHIPS && (
+            {matchingFilterCount > FILTER_ITEM_LIMIT && (
               <p className="text-xs text-ash mb-6">
-                该维度条目较多，仅纳入前 {MAX_FILTER_CHIPS} 项；可用上方搜索覆盖全文诗词。
+                当前匹配 {matchingFilterCount} 项，先显示前 {FILTER_ITEM_LIMIT} 项；继续输入可缩小范围。
               </p>
             )}
           </>

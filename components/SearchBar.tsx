@@ -102,7 +102,7 @@ export default function SearchBar({
           <button
             type="button"
             onClick={() => handleChange('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-ash hover:text-ink dark:hover:text-night-text"
+            className="absolute right-1 top-1/2 -translate-y-1/2 p-2 text-ash hover:text-ink dark:hover:text-night-text"
             aria-label="清除搜索"
           >
             <X size={14} />
