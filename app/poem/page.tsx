@@ -267,6 +267,7 @@ function PoemDetailPageContent() {
               onClick={() => setShowFontPanel(!showFontPanel)}
               className="btn-ghost p-2"
               aria-label="字体大小"
+              aria-expanded={showFontPanel}
             >
               <Type size={16} />
             </button>
@@ -274,6 +275,7 @@ function PoemDetailPageContent() {
               onClick={() => { void toggleFav() }}
               className={`btn-ghost p-2 ${isFavorite ? 'text-red-400' : ''}`}
               aria-label="收藏"
+              aria-pressed={isFavorite}
             >
               <Heart size={16} fill={isFavorite ? 'currentColor' : 'none'} />
             </button>
@@ -281,6 +283,7 @@ function PoemDetailPageContent() {
               onClick={() => setShowGroupPanel(v => !v)}
               className="btn-ghost p-2"
               aria-label="分组管理"
+              aria-expanded={showGroupPanel}
             >
               <FolderTree size={16} />
             </button>
@@ -294,6 +297,7 @@ function PoemDetailPageContent() {
               <button
                 key={fs.key}
                 onClick={() => setFontSize(fs.key)}
+                aria-pressed={fontSize === fs.key}
                 className={`px-3 py-1 rounded text-sm transition-colors
                   ${fontSize === fs.key
                     ? 'bg-ink text-parchment dark:bg-night-text dark:text-night'
@@ -321,7 +325,8 @@ function PoemDetailPageContent() {
             <button
               key={key}
               onClick={() => setViewMode(key)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs transition-colors
+              aria-pressed={viewMode === key}
+              className={`flex min-h-11 items-center gap-1 px-3 py-1.5 rounded-md text-xs transition-colors
                 ${viewMode === key
                   ? 'bg-ink/8 dark:bg-white/8 text-ink dark:text-night-text'
                   : 'text-ash hover:text-ink/70 dark:hover:text-night-text/70'

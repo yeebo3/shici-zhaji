@@ -11,7 +11,7 @@ export type AiPoemInput = Pick<
 
 export type AiStudyContext = Pick<
   StudyRecord,
-  'viewedAt' | 'memorized' | 'reviewCount' | 'favorite'
+  'viewedAt' | 'memorized' | 'reviewCount' | 'favorite' | 'masteryLevel' | 'nextReviewAt' | 'lastReviewedAt' | 'lapseCount'
 >
 
 export type AiReciteContext = {

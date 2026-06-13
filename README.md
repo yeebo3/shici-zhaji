@@ -59,10 +59,10 @@ AI 功能作为基础诗词学习能力的增强层存在，不替代原有离�
 
 ## 🧱 技术栈
 
-- **前端框架**：Next.js 14、React 18、TypeScript
+- **前端框架**：Next.js 15、React 18、TypeScript
 - **界面与交互**：Tailwind CSS、framer-motion、lucide-react
 - **桌面端**：Electron + electron-builder（Windows 安装包/便携包）
-- **移动端**：Capacitor 6（Android）
+- **移动端**：Capacitor 7（Android）
 - **数据与检索**：JSON 分片数据 + SQLite（`node:sqlite`）
 - **数据处理**：opencc-js（繁简转换）、Node.js 脚本化数据构建
 - **AI 增强**：在诗词详情、赏析理解和背诵辅助等学习流程中接入大模型能力

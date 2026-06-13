@@ -6,9 +6,9 @@ import Navbar from '@/components/Navbar'
 import Loading from '@/components/Loading'
 import AiAssistBlock from '@/components/AiAssistBlock'
 import { getPoemById, getPoemIndexById, getPoemNotebooks, getRandomPoemIndex } from '@/lib/poems'
-import { Poem, PoemGroup, PoemNotebook, ReciteMode, ReciteScopeId, StudyRecord } from '@/lib/types'
+import { Poem, PoemGroup, PoemNotebook, ReciteMode, ReciteScopeId, ReviewGrade, StudyRecord } from '@/lib/types'
 import { DEFAULT_RECITE_NOTEBOOK_ID } from '@/lib/notebooks'
-import { getPoemGroups, getStudyRecord, markMemorized, markViewed } from '@/lib/storage'
+import { getDueReviews, getPoemGroups, getStudyRecord, markViewed, recordReview } from '@/lib/storage'
 import { useReciteNotebook } from '@/hooks/useStudy'
 import { useAndroidBackToPath } from '@/hooks/useAndroidBackToPath'
 import {
@@ -18,7 +18,6 @@ import {
   ListOrdered,
   HelpCircle,
   Check,
-  X,
   SkipForward,
   RotateCcw,
 } from 'lucide-react'
@@ -31,6 +30,25 @@ const modes: { key: ReciteMode; label: string; icon: React.ElementType }[] = [
 ]
 
 const GROUP_SCOPE_PREFIX = 'group:'
+
+const reviewOptions: { grade: ReviewGrade; label: string; hint: string }[] = [
+  { grade: 'again', label: '忘记了', hint: '10 分钟后' },
+  { grade: 'hard', label: '有点难', hint: '较短间隔' },
+  { grade: 'good', label: '记住了', hint: '正常间隔' },
+  { grade: 'easy', label: '很熟练', hint: '更长间隔' },
+]
+
+function formatNextReview(value?: string): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const diffMinutes = Math.round((date.getTime() - Date.now()) / 60000)
+  if (diffMinutes < 60) return `${Math.max(1, diffMinutes)} 分钟后复习`
+  const diffHours = Math.round(diffMinutes / 60)
+  if (diffHours < 24) return `${diffHours} 小时后复习`
+  const diffDays = Math.round(diffHours / 24)
+  return `${diffDays} 天后复习`
+}
 
 type ReciteScopeOption = {
   id: ReciteScopeId
@@ -88,6 +106,7 @@ function RecitePageContent() {
   const { notebook, setNotebook } = useReciteNotebook()
   const id = decodePoemId(searchParams.get('id'))
   const shardHint = parseShardHint(searchParams.get('s'))
+  const queueMode = searchParams.get('queue') === 'due'
   const [entryFrom, setEntryFrom] = useState('/')
   const [poem, setPoem] = useState<Poem | null>(null)
   const [studyRecord, setStudyRecord] = useState<StudyRecord | null>(null)
@@ -99,20 +118,59 @@ function RecitePageContent() {
   const [revealedWords, setRevealedWords] = useState<Set<string>>(new Set())
   const [currentSentence, setCurrentSentence] = useState(0)
   const [testRevealed, setTestRevealed] = useState(false)
-  const [result, setResult] = useState<'none' | 'memorized' | 'forgot'>('none')
+  const [result, setResult] = useState<ReviewGrade | 'none'>('none')
+  const [nextReviewAt, setNextReviewAt] = useState<string | undefined>()
+  const [reviewError, setReviewError] = useState('')
+  const [queueComplete, setQueueComplete] = useState(false)
   const pendingMarkRef = useRef<Promise<void> | null>(null)
 
   useAndroidBackToPath(entryFrom)
 
   useEffect(() => {
-    async function load() {
-      if (!id) {
-        setPoem(null)
-        setStudyRecord(null)
-        setError('缺少诗词参数')
-        setLoading(false)
-        return
+    if (id) return
+    let cancelled = false
+
+    async function selectInitialPoem() {
+      setLoading(true)
+      setError(null)
+      try {
+        const requestedQueue = searchParams.get('queue')
+        const due = requestedQueue === 'practice' ? [] : await getDueReviews(50)
+        let next = null as Awaited<ReturnType<typeof getPoemIndexById>>
+        for (const record of due) {
+          next = await getPoemIndexById(record.poemId)
+          if (next) break
+        }
+
+        const nextQueue = next ? 'due' : 'practice'
+        if (!next) {
+          const scope = isGroupScope(notebook) ? DEFAULT_RECITE_NOTEBOOK_ID : notebook
+          next = await getRandomPoemIndex(scope)
+        }
+        if (!next) throw new Error('当前背诵范围没有可用诗词')
+
+        const from = searchParams.get('from')
+        const safeFrom = from && from.startsWith('/') && !from.startsWith('/recite') ? from : '/'
+        if (!cancelled) {
+          router.replace(
+            `/recite?id=${encodeURIComponent(next.id)}&s=${next.shard}&queue=${nextQueue}&from=${encodeURIComponent(safeFrom)}`
+          )
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : '无法开始背诵')
+          setLoading(false)
+        }
       }
+    }
+
+    void selectInitialPoem()
+    return () => { cancelled = true }
+  }, [id, notebook, router, searchParams])
+
+  useEffect(() => {
+    async function load() {
+      if (!id) return
 
       setLoading(true)
       setError(null)
@@ -263,6 +321,8 @@ function RecitePageContent() {
     setCurrentSentence(0)
     setTestRevealed(false)
     setResult('none')
+    setNextReviewAt(undefined)
+    setReviewError('')
   }
 
   useEffect(() => {
@@ -270,7 +330,11 @@ function RecitePageContent() {
     setCurrentSentence(0)
     setTestRevealed(false)
     setResult('none')
-  }, [poem?.id])
+    setNextReviewAt(undefined)
+    setReviewError('')
+    setQueueComplete(false)
+    if (queueMode) setMode('test')
+  }, [poem?.id, queueMode])
 
   const handleModeChange = (m: ReciteMode) => {
     setMode(m)
@@ -281,17 +345,24 @@ function RecitePageContent() {
     setRevealedWords(prev => new Set([...prev, key]))
   }
 
-  const queueMemorizedResult = (memorized: boolean, nextResult: 'memorized' | 'forgot') => {
-    if (!poem) return
-    setResult(nextResult)
+  const queueReviewResult = (grade: ReviewGrade) => {
+    if (!poem || result !== 'none') return
+    setResult(grade)
+    setReviewError('')
     const previousTask = pendingMarkRef.current ?? Promise.resolve()
     const task = previousTask
       .catch(() => undefined)
-      .then(() => markMemorized(poem.id, memorized))
-      .then(() => getStudyRecord(poem.id))
-      .then(record => { setStudyRecord(record) })
+      .then(() => recordReview(poem.id, grade))
+      .then(record => {
+        setStudyRecord(record)
+        setNextReviewAt(record?.nextReviewAt)
+      })
       .then(() => undefined)
-      .catch(() => undefined)
+      .catch(() => {
+        setResult('none')
+        setNextReviewAt(undefined)
+        setReviewError('反馈保存失败，请重试。')
+      })
     pendingMarkRef.current = task
     void task.finally(() => {
       if (pendingMarkRef.current === task) {
@@ -300,21 +371,29 @@ function RecitePageContent() {
     })
   }
 
-  const handleMemorized = () => {
-    queueMemorizedResult(true, 'memorized')
-  }
-
-  const handleForgot = () => {
-    queueMemorizedResult(false, 'forgot')
-  }
-
   const handleNext = async () => {
     if (pendingMarkRef.current) {
       await pendingMarkRef.current
     }
 
     let p = null as Awaited<ReturnType<typeof getRandomPoemIndex>> | null
-    if (isGroupScope(notebook)) {
+    if (queueMode) {
+      const due = await getDueReviews(50)
+      for (const record of due) {
+        if (record.poemId === poem?.id) continue
+        const next = await getPoemIndexById(record.poemId)
+        if (next) {
+          p = next
+          break
+        }
+      }
+      if (!p) {
+        setQueueComplete(true)
+        return
+      }
+    }
+
+    if (!p && isGroupScope(notebook)) {
       const groupId = getGroupIdFromScope(notebook)
       const group = groups.find(item => item.id === groupId)
       if (group) {
@@ -331,7 +410,7 @@ function RecitePageContent() {
           }
         }
       }
-    } else {
+    } else if (!p) {
       p = await getRandomPoemIndex(notebook)
     }
 
@@ -344,7 +423,13 @@ function RecitePageContent() {
       }
       p = await getRandomPoemIndex(fallbackNotebook)
     }
-    router.push(`/recite?id=${encodeURIComponent(p.id)}&s=${p.shard}&from=${encodeURIComponent(entryFrom)}`)
+    if (!p) {
+      setError('当前背诵范围没有可用诗词')
+      return
+    }
+    router.push(
+      `/recite?id=${encodeURIComponent(p.id)}&s=${p.shard}${queueMode ? '&queue=due' : ''}&from=${encodeURIComponent(entryFrom)}`
+    )
   }
 
   if (loading) return <RecitePageFallback />
@@ -365,7 +450,30 @@ function RecitePageContent() {
     )
   }
 
-  const progress = mode === 'line'
+  if (queueComplete) {
+    return (
+      <div className="min-h-screen">
+        <Navbar />
+        <main className="max-w-2xl mx-auto px-4 py-16">
+          <div className="card p-8 text-center">
+            <Check size={28} className="mx-auto text-emerald-600 dark:text-emerald-400 mb-4" />
+            <h1 className="font-serif text-xl font-semibold">本轮复习已完成</h1>
+            <p className="text-sm text-ash mt-2">新的复习时间会根据刚才的反馈自动安排。</p>
+            <div className="flex justify-center gap-3 mt-6">
+              <button onClick={() => router.push(entryFrom)} className="btn-primary">返回</button>
+              <button onClick={() => router.push(`/recite?queue=practice&from=${encodeURIComponent(entryFrom)}`)} className="btn-ghost">
+                继续练习
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  const progress = mode === 'read'
+    ? null
+    : mode === 'line'
     ? (
       totalSentences > 0
         ? Math.round(((Math.min(currentSentence, totalSentences - 1) + 1) / totalSentences) * 100)
@@ -373,13 +481,12 @@ function RecitePageContent() {
     )
     : mode === 'mask'
     ? Math.round((revealedWords.size / Math.max(1, maskedIndices.length)) * 100)
-    : mode === 'test'
-    ? testRevealed ? 100 : 0
-    : 100
+    : testRevealed ? 100 : 0
 
   const canPrevSentence = mode === 'line' && currentSentence > 0
   const canNextSentence = mode === 'line' && currentSentence < totalSentences - 1
   const currentScope = scopeOptions.find(item => item.id === notebook)
+  const canRate = mode !== 'read' && (mode !== 'test' || testRevealed)
 
   return (
     <div className="min-h-screen">
@@ -399,13 +506,15 @@ function RecitePageContent() {
           <p className="text-sm text-ash mt-1">〔{poem.dynasty}〕{poem.author}</p>
         </div>
 
-        <div className="mb-6">
-          <div className="h-1 bg-stone/15 dark:bg-stone/10 rounded-full overflow-hidden">
-            <div className="h-full bg-ink/30 dark:bg-night-text/30 rounded-full transition-all duration-500"
-                 style={{ width: `${progress}%` }} />
+        {progress !== null && (
+          <div className="mb-6">
+            <div className="h-1 bg-stone/15 dark:bg-stone/10 rounded-full overflow-hidden">
+              <div className="h-full bg-ink/30 dark:bg-night-text/30 rounded-full transition-all duration-500"
+                   style={{ width: `${progress}%` }} />
+            </div>
+            <p className="text-xs text-ash text-center mt-1.5">{progress}%</p>
           </div>
-          <p className="text-xs text-ash text-center mt-1.5">{progress}%</p>
-        </div>
+        )}
 
         <div className="mb-6">
           <p className="text-xs text-ash tracking-widest uppercase text-center mb-2">背诵范围</p>
@@ -414,7 +523,8 @@ function RecitePageContent() {
               <button
                 key={item.id}
                 onClick={() => { void setNotebook(item.id) }}
-                className={`px-3 py-1.5 rounded-md text-xs transition-colors ${
+                aria-pressed={notebook === item.id}
+                className={`min-h-11 px-3 py-1.5 rounded-md text-xs transition-colors ${
                   notebook === item.id
                     ? 'bg-ink/10 dark:bg-white/10 text-ink dark:text-night-text'
                     : 'text-ash hover:text-ink/75 dark:hover:text-night-text/75'
@@ -430,7 +540,8 @@ function RecitePageContent() {
         <div className="flex justify-center gap-1 mb-8">
           {modes.map(({ key, label, icon: Icon }) => (
             <button key={key} onClick={() => handleModeChange(key)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs transition-colors
+              aria-pressed={mode === key}
+              className={`flex min-h-11 items-center gap-1 px-3 py-1.5 rounded-md text-xs transition-colors
                 ${mode === key ? 'bg-ink/8 dark:bg-white/8 text-ink dark:text-night-text'
                   : 'text-ash hover:text-ink/70 dark:hover:text-night-text/70'}`}>
               <Icon size={13} /> {label}
@@ -458,9 +569,14 @@ function RecitePageContent() {
                     if (!isMasked) return <span key={ci} className="text-ink/90 dark:text-night-text/90">{char}</span>
                     if (isRevealed) return <span key={ci} className="text-emerald-600 dark:text-emerald-400">{char}</span>
                     return (
-                      <span key={ci} onClick={() => handleRevealWord(key)}
-                        className="inline-block w-[1.2em] h-[1.2em] bg-ink/10 dark:bg-white/10 rounded cursor-pointer
-                                   hover:bg-ink/20 dark:hover:bg-white/20 transition-colors mx-px align-middle" />
+                      <button
+                        key={ci}
+                        type="button"
+                        onClick={() => handleRevealWord(key)}
+                        aria-label={`显示第 ${li + 1} 行第 ${ci + 1} 个字`}
+                        className="inline-flex w-[1.2em] h-[1.2em] bg-ink/10 dark:bg-white/10 rounded cursor-pointer
+                                   hover:bg-ink/20 dark:hover:bg-white/20 transition-colors mx-px align-middle"
+                      />
                     )
                   })}
                 </p>
@@ -511,12 +627,40 @@ function RecitePageContent() {
           )}
         </div>
 
-        {result !== 'none' && (
-          <div className={`card p-4 mb-6 text-center text-sm ${
-            result === 'memorized' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-            {result === 'memorized' ? '已标记为"记住了"，继续保持！' : '没关系，多复习几次就好了。'}
+        <div className="card p-4 mb-6">
+          <p className="text-sm font-medium text-center">这次回忆得怎么样？</p>
+          {!canRate && result === 'none' && (
+            <p className="text-xs text-ash text-center mt-1.5">
+              {mode === 'read' ? '切换到遮挡、逐句或自测模式后再反馈。' : '先显示答案，再根据回忆情况反馈。'}
+            </p>
+          )}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+            {reviewOptions.map(option => (
+              <button
+                key={option.grade}
+                type="button"
+                onClick={() => queueReviewResult(option.grade)}
+                disabled={!canRate || result !== 'none'}
+                className={`rounded-lg border px-2 py-2.5 text-center transition-colors ${
+                  result === option.grade
+                    ? 'border-ink/30 bg-ink/8 dark:border-white/25 dark:bg-white/8'
+                    : 'border-stone/20 dark:border-stone/10 hover:border-stone/40 dark:hover:border-stone/25'
+                } ${!canRate || result !== 'none' ? 'disabled:opacity-50 disabled:cursor-not-allowed' : ''}`}
+              >
+                <span className="block text-sm">{option.label}</span>
+                <span className="block text-[11px] text-ash mt-0.5">{option.hint}</span>
+              </button>
+            ))}
           </div>
-        )}
+          {result !== 'none' && (
+            <p className="text-xs text-emerald-700 dark:text-emerald-400 text-center mt-3">
+              已记录，{formatNextReview(nextReviewAt) || '正在安排下次复习'}。
+            </p>
+          )}
+          {reviewError && (
+            <p className="text-xs text-amber-700 dark:text-amber-300 text-center mt-3">{reviewError}</p>
+          )}
+        </div>
 
         <AiAssistBlock
           task="recitation"
@@ -532,21 +676,19 @@ function RecitePageContent() {
           className="mb-6"
         />
 
-        <div className="flex justify-center gap-3 pb-8">
-          <button onClick={handleMemorized} className="btn-primary flex items-center gap-1.5">
-            <Check size={14} /> 记住了
-          </button>
-          <button onClick={handleForgot} className="btn-ghost flex items-center gap-1.5">
-            <X size={14} /> 没记住
-          </button>
-          <button onClick={handleNext} className="btn-ghost flex items-center gap-1.5">
+        <div className="flex justify-center pb-8">
+          <button
+            onClick={handleNext}
+            disabled={queueMode && result === 'none'}
+            className={`btn-primary flex items-center gap-1.5 ${queueMode && result === 'none' ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
             <SkipForward size={14} /> 下一首
           </button>
         </div>
       </main>
 
       {mode === 'line' && (
-        <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-40 w-[min(calc(100%-1rem),42rem)]">
+        <div className="safe-fixed-bottom fixed left-1/2 -translate-x-1/2 z-40 w-[min(calc(100%-1rem),42rem)]">
           <div className="card px-3 py-2">
             <div className="grid grid-cols-2 gap-2">
             <button

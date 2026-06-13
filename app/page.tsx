@@ -7,22 +7,24 @@ import Navbar from '@/components/Navbar'
 import PoemCard from '@/components/PoemCard'
 import Loading from '@/components/Loading'
 import { PoemIndex } from '@/lib/types'
-import { getRecentlyViewed } from '@/lib/storage'
+import { getDueReviews, getRecentlyViewed } from '@/lib/storage'
 import {
   getDailyPoemIndex,
+  getPoemIndexById,
   getRandomPoemIndex,
   queryPoems,
 } from '@/lib/poems'
-import { BookOpen, Shuffle, ArrowRight, Bookmark } from 'lucide-react'
+import { BookOpen, Brain, Shuffle, ArrowRight, Bookmark } from 'lucide-react'
 
-const PAGE_SIZE = 120
+const PAGE_SIZE = 24
 
 export default function HomePage() {
   const router = useRouter()
   const pathname = usePathname()
   const currentPath = pathname || '/'
   const [daily, setDaily] = useState<PoemIndex | null>(null)
-  const [continueEntry, setContinueEntry] = useState<{ id: string; shard?: number } | null>(null)
+  const [continueEntry, setContinueEntry] = useState<PoemIndex | null>(null)
+  const [dueCount, setDueCount] = useState(0)
   const [allPoems, setAllPoems] = useState<PoemIndex[]>([])
   const [totalPoems, setTotalPoems] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -32,21 +34,19 @@ export default function HomePage() {
   useEffect(() => {
     async function init() {
       try {
-        const [dailyP, firstPage] = await Promise.all([
+        const [dailyP, firstPage, recent, dueReviews] = await Promise.all([
           getDailyPoemIndex(),
           queryPoems({ offset: 0, limit: PAGE_SIZE }),
+          getRecentlyViewed(),
+          getDueReviews(1000),
         ])
         setDaily(dailyP)
         setAllPoems(firstPage.items)
         setTotalPoems(firstPage.total)
+        setDueCount(dueReviews.length)
 
-        // Avoid triggering heavy index lookup during startup.
-        const recent = await getRecentlyViewed()
         if (recent.length > 0) {
-          setContinueEntry({
-            id: recent[0].poemId,
-            shard: recent[0].shard,
-          })
+          setContinueEntry(await getPoemIndexById(recent[0].poemId))
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : '数据加载失败'
@@ -127,19 +127,38 @@ export default function HomePage() {
           </div>
         </section>
 
+        <section className="mb-10">
+          <Link
+            href={`/recite?from=${encodeURIComponent(currentPath || '/')}`}
+            className="card p-5 flex items-center justify-between gap-4 hover:border-stone/40 dark:hover:border-stone/20 transition-colors"
+          >
+            <div>
+              <p className="text-xs text-ash tracking-widest uppercase mb-2">复习计划</p>
+              <p className="font-serif text-lg font-medium">
+                {dueCount > 0 ? `${dueCount} 首诗词待复习` : '开始一次背诵练习'}
+              </p>
+              <p className="text-xs text-ash mt-1">
+                {dueCount > 0 ? '按记忆反馈安排下一次复习' : '完成反馈后会自动生成复习计划'}
+              </p>
+            </div>
+            <Brain size={22} className="text-ink/55 dark:text-night-text/55 flex-none" />
+          </Link>
+        </section>
+
         {/* Continue Learning */}
         {continueEntry && (
           <section className="mb-10">
             <div className="flex items-center justify-between mb-4">
               <p className="text-xs text-ash tracking-widest uppercase">继续学习</p>
-              <Link href={`/poem?id=${encodeURIComponent(continueEntry.id)}${continueEntry.shard !== undefined ? `&s=${continueEntry.shard}` : ''}&from=${encodeURIComponent(currentPath || '/')}`} className="text-xs text-ash hover:text-ink dark:hover:text-night-text flex items-center gap-1">
+              <Link href={`/poem?id=${encodeURIComponent(continueEntry.id)}&s=${continueEntry.shard}&from=${encodeURIComponent(currentPath || '/')}`} className="text-xs text-ash hover:text-ink dark:hover:text-night-text flex items-center gap-1">
                 继续 <ArrowRight size={12} />
               </Link>
             </div>
             <div className="card p-5">
-              <p className="text-sm text-ash mb-2">继续上次学习的诗词</p>
+              <p className="font-serif text-lg font-medium">{continueEntry.title}</p>
+              <p className="text-sm text-ash mt-1 mb-3">〔{continueEntry.dynasty}〕{continueEntry.author}</p>
               <Link
-                href={`/poem?id=${encodeURIComponent(continueEntry.id)}${continueEntry.shard !== undefined ? `&s=${continueEntry.shard}` : ''}&from=${encodeURIComponent(currentPath || '/')}`}
+                href={`/poem?id=${encodeURIComponent(continueEntry.id)}&s=${continueEntry.shard}&from=${encodeURIComponent(currentPath || '/')}`}
                 className="btn-ghost inline-flex items-center gap-1.5"
               >
                 打开上次诗词 <ArrowRight size={12} />

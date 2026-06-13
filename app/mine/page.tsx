@@ -128,7 +128,8 @@ export default function MinePage() {
         <div className="flex gap-1 mb-6 flex-wrap">
           {tabs.map(({ key, label, icon: Icon }) => (
             <button key={key} onClick={() => setTab(key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors
+              aria-pressed={tab === key}
+              className={`flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors
                 ${tab === key ? 'bg-ink/8 dark:bg-white/8 text-ink dark:text-night-text'
                   : 'text-ash hover:text-ink/70 dark:hover:text-night-text/70'}`}>
               <Icon size={14} /> {label}

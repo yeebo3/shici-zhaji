@@ -1,9 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Loader2, RefreshCw, Sparkles } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { readAiCache, writeAiCache } from '@/lib/ai/cache'
 import { requestPoemAi } from '@/lib/ai/client'
+import { getAiSettingsStatus } from '@/lib/ai/settings'
 import { AiPoemInput, AiPoemTask, AiReciteContext, AiStudyContext } from '@/lib/ai/types'
 
 type AiAssistBlockProps = {
@@ -28,12 +31,33 @@ export default function AiAssistBlock({
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [cacheModel, setCacheModel] = useState('default')
+  const cacheContext = useMemo(
+    () => JSON.stringify({ poem, studyRecord: studyRecord || null, recite: recite || null }),
+    [poem, recite, studyRecord]
+  )
 
   useEffect(() => {
-    setContent(readAiCache(poem.id, task) || '')
+    let cancelled = false
+    setContent('')
     setError('')
     setLoading(false)
-  }, [poem.id, task])
+
+    async function loadCachedContent() {
+      let model = 'default'
+      try {
+        model = (await getAiSettingsStatus()).model || model
+      } catch {
+        // The request path will surface configuration errors if generation is attempted.
+      }
+      if (cancelled) return
+      setCacheModel(model)
+      setContent(readAiCache({ poemId: poem.id, task, model, context: cacheContext }) || '')
+    }
+
+    void loadCachedContent()
+    return () => { cancelled = true }
+  }, [cacheContext, poem.id, task])
 
   const handleGenerate = async () => {
     setLoading(true)
@@ -41,7 +65,9 @@ export default function AiAssistBlock({
     try {
       const result = await requestPoemAi({ task, poem, studyRecord, recite })
       setContent(result.text)
-      writeAiCache(poem.id, task, result.text)
+      const model = result.model || cacheModel
+      setCacheModel(model)
+      writeAiCache({ poemId: poem.id, task, model, context: cacheContext }, result.text)
     } catch (e) {
       setError(e instanceof Error ? e.message : '生成失败，请稍后再试。')
     } finally {
@@ -78,9 +104,21 @@ export default function AiAssistBlock({
 
       {content && (
         <div className="mt-3 border-t border-stone/20 dark:border-stone/10 pt-3">
-          <p className="whitespace-pre-wrap text-sm text-ink/70 dark:text-night-text/70 leading-relaxed">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              h1: ({ children }) => <h3 className="font-serif text-base font-semibold mt-4 mb-2 first:mt-0">{children}</h3>,
+              h2: ({ children }) => <h3 className="font-serif text-base font-semibold mt-4 mb-2 first:mt-0">{children}</h3>,
+              h3: ({ children }) => <h4 className="text-sm font-semibold mt-3 mb-1.5 first:mt-0">{children}</h4>,
+              p: ({ children }) => <p className="text-sm text-ink/70 dark:text-night-text/70 leading-relaxed my-2 first:mt-0">{children}</p>,
+              ul: ({ children }) => <ul className="list-disc pl-5 my-2 space-y-1 text-sm text-ink/70 dark:text-night-text/70">{children}</ul>,
+              ol: ({ children }) => <ol className="list-decimal pl-5 my-2 space-y-1 text-sm text-ink/70 dark:text-night-text/70">{children}</ol>,
+              blockquote: ({ children }) => <blockquote className="border-l-2 border-stone/30 pl-3 my-2 text-ash">{children}</blockquote>,
+              strong: ({ children }) => <strong className="font-semibold text-ink/85 dark:text-night-text/85">{children}</strong>,
+            }}
+          >
             {content}
-          </p>
+          </ReactMarkdown>
           <p className="mt-3 text-xs text-ash">AI 内容仅供辅助学习。</p>
         </div>
       )}

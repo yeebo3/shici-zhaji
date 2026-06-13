@@ -22,8 +22,12 @@ function formatStudyRecord(record?: AiStudyContext | null): string {
   if (!record) return '暂无学习记录'
   return [
     `最近阅读：${record.viewedAt || '未知'}`,
-    `阅读/复习次数：${record.reviewCount}`,
+    `有效复习次数：${record.reviewCount}`,
     `已掌握：${record.memorized ? '是' : '否'}`,
+    `掌握等级：${record.masteryLevel ?? 0}/5`,
+    `最近复习：${record.lastReviewedAt || '暂无'}`,
+    `下次复习：${record.nextReviewAt || '尚未安排'}`,
+    `遗忘次数：${record.lapseCount ?? 0}`,
     `已收藏：${record.favorite ? '是' : '否'}`,
   ].join('\n')
 }
